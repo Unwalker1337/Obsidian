@@ -1682,6 +1682,20 @@ local EnsureGuiCapability
 local function FillInstance(Table: { [string]: any }, Instance: GuiObject)
     local ThemeProperties = Library.Registry[Instance] or {}
 
+    -- A capability error means the container the GUI lives in rejects writes. Without
+    -- healing, the property is silently lost and the menu renders unstyled / collapsed
+    -- / empty -- which is exactly how the "empty tabs" symptom appeared.
+    local function IsCapabilityError(Message: any): boolean
+        return typeof(Message) == "string" and string.find(Message, "capability", 1, true) ~= nil
+    end
+
+    local function HealAndRetry(Apply: () -> ())
+        local OkHeal, Writable = pcall(EnsureGuiCapability)
+        if OkHeal and Writable == true then
+            pcall(Apply)
+        end
+    end
+
     for key, value in Table do
         if key ~= "Text" then
             local SchemeValue = GetSchemeValue(value)
@@ -1695,24 +1709,24 @@ local function FillInstance(Table: { [string]: any }, Instance: GuiObject)
         end
 
         if key == "Font" then
-            pcall(function()
+            local OkFont, ErrFont = pcall(function()
                 Instance.FontFace = Font.fromEnum(value)
             end)
+
+            if not OkFont and IsCapabilityError(ErrFont) then
+                HealAndRetry(function()
+                    Instance.FontFace = Font.fromEnum(value)
+                end)
+            end
         else
             local Ok, Err = pcall(function()
                 Instance[key] = value
             end)
 
-            -- "The current thread cannot access 'Instance' (lacking capability Plugin)"
-            -- means the container the GUI lives in rejects writes. Re-host once and
-            -- retry; otherwise the property is silently lost and the menu renders
-            -- unstyled / collapsed / empty.
-            if not Ok and typeof(Err) == "string" and string.find(Err, "capability", 1, true) then
-                if EnsureGuiCapability and EnsureGuiCapability() then
-                    pcall(function()
-                        Instance[key] = value
-                    end)
-                end
+            if not Ok and IsCapabilityError(Err) then
+                HealAndRetry(function()
+                    Instance[key] = value
+                end)
             end
         end
     end
@@ -1868,8 +1882,16 @@ local function GuiWritable(Container: Instance?): boolean
         local Probe = Instance.new("Frame")
         Probe.Name = "ObsidianCapabilityProbe"
         Probe.Parent = Container
-        Probe.BackgroundTransparency = 0.5
 
+        -- Verify the parent assignment actually took. A silently rejected assignment
+        -- would leave the probe orphaned, and the write below would then succeed and
+        -- report a gated container as writable (false positive).
+        if Probe.Parent ~= Container then
+            Probe:Destroy()
+            return false
+        end
+
+        Probe.BackgroundTransparency = 0.5
         local ReadBack = Probe.BackgroundTransparency
         Probe:Destroy()
 
@@ -1885,34 +1907,49 @@ local function GetPlayerGui(): Instance?
         return nil
     end
 
-    return LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui", 5)
-end
-
-function EnsureGuiCapability(): boolean
-    local ScreenGui = Library.ScreenGui
-    if not ScreenGui then
-        return true
-    end
-
-    if GuiWritable(ScreenGui.Parent) then
-        return true
-    end
-
-    local PlayerGui = GetPlayerGui()
-    if not PlayerGui then
-        return false
-    end
-
-    local Moved = pcall(function()
-        ScreenGui.Parent = PlayerGui
+    local Ok, PlayerGui = pcall(function()
+        return LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui", 5)
     end)
 
-    if Moved and not Library.GuiCapabilityWarned then
-        Library.GuiCapabilityWarned = true
-        warn("[Obsidian] GUI container rejected writes (lacking capability Plugin) - re-hosted in PlayerGui.")
-    end
+    return Ok and PlayerGui or nil
+end
 
-    return Moved and GuiWritable(ScreenGui.Parent)
+-- Never throws: every step is pcall'd, so a capability failure degrades to "false"
+-- instead of propagating out of the UI build (which is how it reached the user).
+function EnsureGuiCapability(): boolean
+    local Ok, Writable = pcall(function()
+        local ScreenGui = Library.ScreenGui
+        if not ScreenGui then
+            return true
+        end
+
+        if GuiWritable(ScreenGui) then
+            return true
+        end
+
+        local PlayerGui = GetPlayerGui()
+        if not PlayerGui then
+            return false
+        end
+
+        pcall(function()
+            ScreenGui.Parent = PlayerGui
+        end)
+
+        local Healed = GuiWritable(ScreenGui)
+
+        if not Library.GuiCapabilityWarned then
+            Library.GuiCapabilityWarned = true
+            warn(string.format(
+                "[Obsidian] GUI writes were refused (lacking capability Plugin); re-hosted in PlayerGui (writable=%s).",
+                tostring(Healed)
+            ))
+        end
+
+        return Healed
+    end)
+
+    return Ok and Writable == true
 end
 
 function Library:EnsureGuiCapability(): boolean
@@ -1925,14 +1962,22 @@ local function ParentUI(UI: Instance, SkipHiddenUI: boolean?)
         return
     end
 
-    -- Try the executor's protected container first, but only move in when this thread
-    -- can actually write there (see GuiWritable). Probing before the move matters:
-    -- once the UI lives in a read-only container every later property write is lost.
+    -- Prefer the executor's hidden container, but verify at every step that this
+    -- thread can actually write into the resulting tree. protectgui()/gethui() land
+    -- the UI inside CoreGui on some executors, where every later property write is
+    -- refused with
+    --   "The current thread cannot access 'Instance' (lacking capability Plugin)"
     local Ok, Container = pcall(gethui)
     if Ok and Container and GuiWritable(Container) then
-        pcall(protectgui, UI)
         SafeParentUI(UI, Container)
-        return
+
+        if GuiWritable(UI) then
+            pcall(protectgui, UI)
+
+            if GuiWritable(UI) then
+                return
+            end
+        end
     end
 
     -- Capability-limited context: PlayerGui is not gated, so host the UI there.
@@ -1942,7 +1987,6 @@ local function ParentUI(UI: Instance, SkipHiddenUI: boolean?)
         return
     end
 
-    pcall(protectgui, UI)
     SafeParentUI(UI, gethui)
 end
 
