@@ -13456,23 +13456,41 @@ function Library:CreateWindow(WindowInfo)
                         end
                     end))
 
-                    -- Mouse drag for 360 manual rotation
-                    table.insert(controller.Connections, vp.InputBegan:Connect(function(input)
-                        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                    vp.Active = true
+
+                    local function onDragStart(input)
+                        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.MouseButton2 then
                             isDragging = true
                             lastMousePos = Vector2.new(input.Position.X, input.Position.Y)
                         end
-                    end))
+                    end
+
+                    -- Mouse drag for 360 manual rotation with LMB or RMB
+                    table.insert(controller.Connections, vp.InputBegan:Connect(onDragStart))
+                    if vp.Parent and vp.Parent:IsA("GuiObject") then
+                        table.insert(controller.Connections, vp.Parent.InputBegan:Connect(onDragStart))
+                    end
 
                     table.insert(controller.Connections, UserInputService.InputEnded:Connect(function(input)
-                        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-                            isDragging = false
+                        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.MouseButton2 then
+                            local m1 = pcall(function() return UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) end) and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
+                            local m2 = pcall(function() return UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) end) and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+                            if not m1 and not m2 then
+                                isDragging = false
+                            end
                         end
                     end))
 
                     -- RenderStepped orbit loop
                     table.insert(controller.Connections, RunService.RenderStepped:Connect(function(dt)
                         if not vp.Parent or not vp.Visible or not TabContainer.Visible then return end
+                        if isDragging then
+                            local m1 = pcall(function() return UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) end) and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
+                            local m2 = pcall(function() return UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) end) and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2)
+                            if not m1 and not m2 then
+                                isDragging = false
+                            end
+                        end
                         if not isDragging then
                             angle = (angle + dt * 38) % 360
                         end
