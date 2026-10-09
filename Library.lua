@@ -12037,6 +12037,218 @@ function Library:CreateWindow(WindowInfo)
             end)
         end
 
+        --// Header gear button -> theme / font popup \\--
+        -- Sits next to the config pill. Wire it from the game script with
+        --   Library:SetSettingsHandler({
+        --       GetThemes     = function() return { "Default", ... } end,
+        --       GetActiveTheme= function() return "Default" end,
+        --       OnSelectTheme = function(name) end,
+        --       GetFonts      = function() return { "Gotham", ... } end,
+        --       GetActiveFont = function() return "GothamMedium" end,
+        --       OnSelectFont  = function(name) end,
+        --   })
+        local GearButton = New("TextButton", {
+            AutoButtonColor = false,
+            BackgroundColor3 = function()
+                return Library:GetBetterColor(Library.Scheme.BackgroundColor, 2)
+            end,
+            Size = UDim2.fromOffset(22, 22),
+            Text = "",
+            LayoutOrder = 4,
+            Parent = TitleHolder,
+        })
+        New("UICorner", { CornerRadius = UDim.new(0, 5), Parent = GearButton })
+        New("UIStroke", { Color = "OutlineColor", Thickness = 1, Parent = GearButton })
+
+        local GearIcon = New("ImageLabel", {
+            AnchorPoint = Vector2.new(0.5, 0.5),
+            BackgroundTransparency = 1,
+            ImageColor3 = "FontColor",
+            ImageTransparency = 0.25,
+            Position = UDim2.fromScale(0.5, 0.5),
+            Size = UDim2.fromOffset(13, 13),
+            Parent = GearButton,
+        })
+        local gearIconData = Library:GetIcon("settings")
+        if gearIconData then Library:ApplyLucideIcon(GearIcon, gearIconData) end
+
+        Library.SettingsButton = GearButton
+
+        local SettingsPopup
+
+        local function CloseSettingsPopup()
+            if SettingsPopup then
+                pcall(function() SettingsPopup:Destroy() end)
+                SettingsPopup = nil
+            end
+        end
+
+        local function SettingsRow(Parent: Instance, Text: string, Active: boolean, OnClick: () -> ()): TextButton
+            local Row = New("TextButton", {
+                AutoButtonColor = false,
+                BackgroundColor3 = Active and Color3.fromRGB(38, 32, 58) or Color3.fromRGB(22, 22, 27),
+                BackgroundTransparency = Active and 0 or 1,
+                BorderSizePixel = 0,
+                Size = UDim2.new(1, 0, 0, 22),
+                Text = Text,
+                TextColor3 = Active and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(170, 170, 180),
+                TextSize = 11,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                ZIndex = 31,
+                Parent = Parent,
+            })
+            New("UICorner", { CornerRadius = UDim.new(0, 4), Parent = Row })
+            New("UIPadding", { PaddingLeft = UDim.new(0, 6), Parent = Row })
+
+            if not Active then
+                Row.MouseEnter:Connect(function() Row.BackgroundTransparency = 0 end)
+                Row.MouseLeave:Connect(function() Row.BackgroundTransparency = 1 end)
+            end
+
+            Row.MouseButton1Click:Connect(function()
+                pcall(OnClick)
+            end)
+
+            return Row
+        end
+
+        local function SettingsList(Parent: Instance, Title: string, Items: { string }, Active: string, Height: number, OnPick: (string) -> ())
+            New("TextLabel", {
+                BackgroundTransparency = 1,
+                Size = UDim2.new(1, 0, 0, 14),
+                Text = Title,
+                TextColor3 = Color3.fromRGB(120, 120, 130),
+                TextSize = 11,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                ZIndex = 30,
+                Parent = Parent,
+            })
+
+            local Scroll = New("ScrollingFrame", {
+                BackgroundColor3 = Color3.fromRGB(16, 16, 20),
+                BorderSizePixel = 0,
+                Size = UDim2.new(1, 0, 0, Height),
+                CanvasSize = UDim2.fromScale(0, 0),
+                AutomaticCanvasSize = Enum.AutomaticSize.Y,
+                ScrollBarThickness = 3,
+                ScrollBarImageColor3 = Color3.fromRGB(50, 50, 60),
+                ZIndex = 30,
+                Parent = Parent,
+            })
+            New("UICorner", { CornerRadius = UDim.new(0, 4), Parent = Scroll })
+            New("UIPadding", {
+                PaddingTop = UDim.new(0, 3),
+                PaddingBottom = UDim.new(0, 3),
+                PaddingLeft = UDim.new(0, 3),
+                PaddingRight = UDim.new(0, 3),
+                Parent = Scroll,
+            })
+            New("UIListLayout", { Padding = UDim.new(0, 1), Parent = Scroll })
+
+            for _, Item in ipairs(Items) do
+                SettingsRow(Scroll, string.lower(tostring(Item)), string.lower(tostring(Item)) == string.lower(Active), function()
+                    OnPick(Item)
+                end)
+            end
+        end
+
+        local function OpenSettingsPopup()
+            CloseSettingsPopup()
+            EnsureGuiCapability()
+
+            local Handler = Library.SettingsHandler or {}
+
+            local Themes, Fonts = {}, {}
+            if Handler.GetThemes then
+                local Ok, List = pcall(Handler.GetThemes)
+                if Ok and typeof(List) == "table" then Themes = List end
+            end
+            if Handler.GetFonts then
+                local Ok, List = pcall(Handler.GetFonts)
+                if Ok and typeof(List) == "table" then Fonts = List end
+            end
+
+            local ActiveTheme, ActiveFont = "", ""
+            if Handler.GetActiveTheme then
+                local Ok, Name = pcall(Handler.GetActiveTheme)
+                if Ok and typeof(Name) == "string" then ActiveTheme = Name end
+            end
+            if Handler.GetActiveFont then
+                local Ok, Name = pcall(Handler.GetActiveFont)
+                if Ok and typeof(Name) == "string" then ActiveFont = Name end
+            end
+
+            local GearPos, GearSize = GearButton.AbsolutePosition, GearButton.AbsoluteSize
+            local MainPos = MainFrame.AbsolutePosition
+            local Width = 190
+
+            SettingsPopup = New("Frame", {
+                Name = "SettingsPopup",
+                BackgroundColor3 = Color3.fromRGB(18, 18, 22),
+                BorderSizePixel = 0,
+                ClipsDescendants = true,
+                Position = UDim2.fromOffset(
+                    GearPos.X - MainPos.X - (Width - GearSize.X),
+                    GearPos.Y - MainPos.Y + GearSize.Y + 4
+                ),
+                Size = UDim2.fromOffset(Width, 332),
+                ZIndex = 29,
+                Parent = MainFrame,
+            })
+            New("UICorner", { CornerRadius = UDim.new(0, 6), Parent = SettingsPopup })
+            New("UIStroke", { Color = Color3.fromRGB(45, 45, 55), Thickness = 1, Parent = SettingsPopup })
+            New("UIPadding", {
+                PaddingTop = UDim.new(0, 6),
+                PaddingBottom = UDim.new(0, 6),
+                PaddingLeft = UDim.new(0, 6),
+                PaddingRight = UDim.new(0, 6),
+                Parent = SettingsPopup,
+            })
+            New("UIListLayout", { Padding = UDim.new(0, 4), Parent = SettingsPopup })
+
+            SettingsList(SettingsPopup, "theme", Themes, ActiveTheme, 160, function(Name)
+                if Handler.OnSelectTheme then
+                    pcall(Handler.OnSelectTheme, Name)
+                end
+                CloseSettingsPopup()
+            end)
+
+            SettingsList(SettingsPopup, "font", Fonts, ActiveFont, 130, function(Name)
+                if Handler.OnSelectFont then
+                    pcall(Handler.OnSelectFont, Name)
+                end
+                CloseSettingsPopup()
+            end)
+        end
+
+        GearButton.MouseButton1Click:Connect(function()
+            if SettingsPopup then
+                CloseSettingsPopup()
+            else
+                OpenSettingsPopup()
+            end
+        end)
+
+        -- Click anywhere outside the popup to dismiss it.
+        UserInputService.InputBegan:Connect(function(Input)
+            if Input.UserInputType ~= Enum.UserInputType.MouseButton1 or not SettingsPopup then
+                return
+            end
+
+            local Pos, Size = SettingsPopup.AbsolutePosition, SettingsPopup.AbsoluteSize
+            local Mouse = Input.Position
+            local Inside = Mouse.X >= Pos.X and Mouse.X <= Pos.X + Size.X
+                and Mouse.Y >= Pos.Y and Mouse.Y <= Pos.Y + Size.Y
+
+            if not Inside then
+                task.defer(CloseSettingsPopup)
+            end
+        end)
+
+        function Library:SetSettingsHandler(Handler: { [string]: any })
+            Library.SettingsHandler = Handler
+        end
+
         RefreshWindowTitleSize = function()
             -- Auto-sized in Shitaro layout
         end
