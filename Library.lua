@@ -11612,6 +11612,256 @@ function Library:CreateWindow(WindowInfo)
         local chevIco = Library:GetIcon("chevron-down")
         if chevIco then Library:ApplyLucideIcon(ConfigChevron, chevIco) end
 
+        --// Config pill dropdown ("default v") \\--
+        -- The pill doubles as the config selector: clicking it opens the list of saved
+        -- configs plus create / save actions. Wire it from the game script with
+        --   Library:SetConfigPillHandler({
+        --       GetConfigs = function() return { "default", ... } end,
+        --       GetActive  = function() return "default" end,
+        --       OnSelect   = function(name) end,
+        --       OnCreate   = function(name) end,
+        --       OnSave     = function() end,
+        --   })
+        Library.ConfigPillButton = ConfigPill
+        Library.ConfigPillLabel = ConfigPillLabel
+
+        local ConfigPillDropdown
+
+        local function CloseConfigPillDropdown()
+            if ConfigPillDropdown then
+                pcall(function() ConfigPillDropdown:Destroy() end)
+                ConfigPillDropdown = nil
+            end
+        end
+
+        local function ConfigPillRow(Text: string, Fill: Color3?, OnClick: (() -> ())?): TextButton
+            local Row = New("TextButton", {
+                AutoButtonColor = false,
+                BackgroundColor3 = Fill or Color3.fromRGB(22, 22, 27),
+                BackgroundTransparency = Fill and 0 or 1,
+                BorderSizePixel = 0,
+                Size = UDim2.new(1, 0, 0, 24),
+                Text = Text,
+                TextColor3 = Color3.fromRGB(190, 190, 200),
+                TextSize = 12,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                ZIndex = 26,
+                Parent = ConfigPillDropdown,
+            })
+            New("UICorner", { CornerRadius = UDim.new(0, 4), Parent = Row })
+            New("UIPadding", { PaddingLeft = UDim.new(0, 8), Parent = Row })
+
+            if not Fill then
+                Row.MouseEnter:Connect(function() Row.BackgroundTransparency = 0 end)
+                Row.MouseLeave:Connect(function() Row.BackgroundTransparency = 1 end)
+            end
+
+            if OnClick then
+                Row.MouseButton1Click:Connect(function()
+                    pcall(OnClick)
+                end)
+            end
+
+            return Row
+        end
+
+        local function RefreshConfigPillLabel()
+            local Handler = Library.ConfigPillHandler
+            if Handler and Handler.GetActive then
+                local Ok, Name = pcall(Handler.GetActive)
+                if Ok and typeof(Name) == "string" and Name ~= "" then
+                    ConfigPillLabel.Text = Name
+                    return
+                end
+            end
+
+            if ConfigPillLabel.Text == "" then
+                ConfigPillLabel.Text = "default"
+            end
+        end
+
+        local function OpenConfigPillDropdown()
+            CloseConfigPillDropdown()
+
+            local Handler = Library.ConfigPillHandler
+            local Configs = {}
+            local Active = ConfigPillLabel.Text
+
+            if Handler then
+                if Handler.GetConfigs then
+                    local Ok, List = pcall(Handler.GetConfigs)
+                    if Ok and typeof(List) == "table" then
+                        Configs = List
+                    end
+                end
+
+                if Handler.GetActive then
+                    local Ok, Name = pcall(Handler.GetActive)
+                    if Ok and typeof(Name) == "string" then
+                        Active = Name
+                    end
+                end
+            end
+
+            table.sort(Configs, function(A, B)
+                return string.lower(tostring(A)) < string.lower(tostring(B))
+            end)
+
+            local PillPos, PillSize = ConfigPill.AbsolutePosition, ConfigPill.AbsoluteSize
+            local MainPos = MainFrame.AbsolutePosition
+            local Width = math.max(PillSize.X, 168)
+            local ListHeight = math.clamp(#Configs * 26, 24, 150)
+
+            ConfigPillDropdown = New("Frame", {
+                Name = "ConfigPillDropdown",
+                BackgroundColor3 = Color3.fromRGB(18, 18, 22),
+                BorderSizePixel = 0,
+                ClipsDescendants = true,
+                Position = UDim2.fromOffset(PillPos.X - MainPos.X, PillPos.Y - MainPos.Y + PillSize.Y + 4),
+                Size = UDim2.fromOffset(Width, ListHeight + 92),
+                ZIndex = 25,
+                Parent = MainFrame,
+            })
+            New("UICorner", { CornerRadius = UDim.new(0, 6), Parent = ConfigPillDropdown })
+            New("UIStroke", { Color = Color3.fromRGB(45, 45, 55), Thickness = 1, Parent = ConfigPillDropdown })
+            New("UIPadding", {
+                PaddingTop = UDim.new(0, 4),
+                PaddingBottom = UDim.new(0, 4),
+                PaddingLeft = UDim.new(0, 4),
+                PaddingRight = UDim.new(0, 4),
+                Parent = ConfigPillDropdown,
+            })
+            New("UIListLayout", { Padding = UDim.new(0, 2), Parent = ConfigPillDropdown })
+
+            local List = New("ScrollingFrame", {
+                BackgroundTransparency = 1,
+                BorderSizePixel = 0,
+                Size = UDim2.new(1, 0, 0, ListHeight),
+                CanvasSize = UDim2.fromScale(0, 0),
+                AutomaticCanvasSize = Enum.AutomaticSize.Y,
+                ScrollBarThickness = 3,
+                ScrollBarImageColor3 = Color3.fromRGB(50, 50, 60),
+                ZIndex = 26,
+                Parent = ConfigPillDropdown,
+            })
+            New("UIListLayout", { Padding = UDim.new(0, 2), Parent = List })
+
+            if #Configs == 0 then
+                New("TextLabel", {
+                    BackgroundTransparency = 1,
+                    Size = UDim2.new(1, 0, 0, 22),
+                    Text = "no configs yet",
+                    TextColor3 = Color3.fromRGB(120, 120, 130),
+                    TextSize = 11,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    ZIndex = 26,
+                    Parent = List,
+                })
+            end
+
+            for _, ConfigName in ipairs(Configs) do
+                local IsActive = (string.lower(tostring(ConfigName)) == string.lower(tostring(Active)))
+                local Row = ConfigPillRow(
+                    string.lower(tostring(ConfigName)),
+                    IsActive and Color3.fromRGB(38, 32, 58) or nil,
+                    function()
+                        if Handler and Handler.OnSelect then
+                            Handler.OnSelect(ConfigName)
+                        end
+                        RefreshConfigPillLabel()
+                        CloseConfigPillDropdown()
+                    end
+                )
+                Row.Parent = List
+
+                if IsActive then
+                    Row.TextColor3 = Color3.fromRGB(255, 255, 255)
+                end
+            end
+
+            local NameBox = New("TextBox", {
+                BackgroundColor3 = Color3.fromRGB(24, 24, 29),
+                BorderSizePixel = 0,
+                ClearTextOnFocus = false,
+                PlaceholderText = "new config name",
+                Text = "",
+                TextColor3 = Color3.fromRGB(225, 225, 235),
+                TextSize = 12,
+                Size = UDim2.new(1, 0, 0, 24),
+                ZIndex = 26,
+                Parent = ConfigPillDropdown,
+            })
+            New("UICorner", { CornerRadius = UDim.new(0, 4), Parent = NameBox })
+            New("UIPadding", { PaddingLeft = UDim.new(0, 8), Parent = NameBox })
+
+            local function CreateFromNameBox()
+                local NewName = NameBox.Text
+                if not NewName or (NewName:gsub("%s", "") == "") then
+                    return
+                end
+
+                if Handler and Handler.OnCreate then
+                    local Ok = pcall(Handler.OnCreate, NewName)
+                    if Ok then
+                        NameBox.Text = ""
+                        RefreshConfigPillLabel()
+                        CloseConfigPillDropdown()
+                    end
+                end
+            end
+
+            NameBox.FocusLost:Connect(function(EnterPressed)
+                if EnterPressed then
+                    CreateFromNameBox()
+                end
+            end)
+
+            ConfigPillRow("+ create", Color3.fromRGB(30, 30, 38), CreateFromNameBox)
+            ConfigPillRow("save current", Color3.fromRGB(30, 30, 38), function()
+                if Handler and Handler.OnSave then
+                    pcall(Handler.OnSave)
+                end
+                CloseConfigPillDropdown()
+            end)
+        end
+
+        ConfigPill.MouseButton1Click:Connect(function()
+            if ConfigPillDropdown then
+                CloseConfigPillDropdown()
+            else
+                OpenConfigPillDropdown()
+            end
+        end)
+
+        -- Click anywhere outside the dropdown to dismiss it.
+        UserInputService.InputBegan:Connect(function(Input)
+            if Input.UserInputType ~= Enum.UserInputType.MouseButton1 then
+                return
+            end
+
+            if not ConfigPillDropdown then
+                return
+            end
+
+            local Pos, Size = ConfigPillDropdown.AbsolutePosition, ConfigPillDropdown.AbsoluteSize
+            local Mouse = Input.Position
+            local Inside = Mouse.X >= Pos.X and Mouse.X <= Pos.X + Size.X
+                and Mouse.Y >= Pos.Y and Mouse.Y <= Pos.Y + Size.Y
+
+            if not Inside then
+                task.defer(CloseConfigPillDropdown)
+            end
+        end)
+
+        function Library:SetConfigPillHandler(Handler: { [string]: any })
+            Library.ConfigPillHandler = Handler
+            RefreshConfigPillLabel()
+        end
+
+        function Library:SetConfigPillLabel(Text: string)
+            ConfigPillLabel.Text = tostring(Text or "default")
+        end
+
         RefreshWindowTitleSize = function()
             -- Auto-sized in Shitaro layout
         end
