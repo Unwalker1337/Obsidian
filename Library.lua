@@ -11284,6 +11284,17 @@ function Library:CreateWindow(WindowInfo)
     Library.TabSwipeOffset = math.max(1, WindowInfo.TabSwipeOffset or 14)
     Library.TabSwipeFrom = WindowInfo.TabSwipeFrom or "bottom"
 
+    -- MenuFadeTime drives the window open/close fade (Library.WindowAnimationInfo).
+    -- It used to be a dead CreateWindow field: the fade was hardcoded to 0.35s, so
+    -- passing MenuFadeTime had no effect at all.
+    if typeof(WindowInfo.MenuFadeTime) == "number" then
+        Library.WindowAnimationInfo = TweenInfo.new(
+            math.clamp(WindowInfo.MenuFadeTime, 0.05, 2),
+            Enum.EasingStyle.Quad,
+            Enum.EasingDirection.Out
+        )
+    end
+
     local IsDefaultSearchbarSize = WindowInfo.SearchbarSize == UDim2.fromScale(1, 1)
     local MainFrame
     local DividerLine
