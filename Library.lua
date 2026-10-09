@@ -1860,7 +1860,11 @@ local function SafeParentUI(Instance: Instance, Parent: Instance | () -> Instanc
     end)
 
     if not (success and Instance.Parent) then
-        Instance.Parent = Library.LocalPlayer:WaitForChild("PlayerGui", math.huge)
+        -- Library.LocalPlayer is not set by the library itself, so this fallback used
+        -- to raise "attempt to index nil" instead of recovering.
+        pcall(function()
+            Instance.Parent = Library.LocalPlayer:WaitForChild("PlayerGui", math.huge)
+        end)
     end
 end
 
@@ -1962,28 +1966,31 @@ local function ParentUI(UI: Instance, SkipHiddenUI: boolean?)
         return
     end
 
-    -- Prefer the executor's hidden container, but verify at every step that this
-    -- thread can actually write into the resulting tree. protectgui()/gethui() land
-    -- the UI inside CoreGui on some executors, where every later property write is
-    -- refused with
+    -- protectgui() is deliberately NOT called any more. syn.protect_gui locks the
+    -- ScreenGui into CoreGui, and on executors that do not grant `Plugin` to the
+    -- script thread that lock makes the entire tree read-only *and* stops us from
+    -- moving it out again -- every later property write is then refused with
     --   "The current thread cannot access 'Instance' (lacking capability Plugin)"
+    -- so newly built elements keep their default size/text and never show up.
+    -- Host the UI in the first container that provably accepts writes instead.
     local Ok, Container = pcall(gethui)
-    if Ok and Container and GuiWritable(Container) then
+    if Ok and Container and Container ~= CoreGui then
         SafeParentUI(UI, Container)
 
         if GuiWritable(UI) then
-            pcall(protectgui, UI)
-
-            if GuiWritable(UI) then
-                return
-            end
+            return
         end
     end
 
-    -- Capability-limited context: PlayerGui is not gated, so host the UI there.
     local PlayerGui = GetPlayerGui()
     if PlayerGui then
         SafeParentUI(UI, PlayerGui)
+
+        if not GuiWritable(UI) and not Library.GuiCapabilityWarned then
+            Library.GuiCapabilityWarned = true
+            warn("[Obsidian] PlayerGui also refused GUI writes; this executor withholds the Plugin capability from the script thread.")
+        end
+
         return
     end
 
