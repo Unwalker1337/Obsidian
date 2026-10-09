@@ -1675,6 +1675,10 @@ function Library:Validate(Table: { [string]: any }, Template: { [string]: any })
 end
 
 --// Creator Functions \\--
+-- Forward declaration: FillInstance can self-heal a capability-gated GUI container
+-- (see EnsureGuiCapability below) by re-hosting the UI and retrying the write.
+local EnsureGuiCapability
+
 local function FillInstance(Table: { [string]: any }, Instance: GuiObject)
     local ThemeProperties = Library.Registry[Instance] or {}
 
@@ -1695,9 +1699,21 @@ local function FillInstance(Table: { [string]: any }, Instance: GuiObject)
                 Instance.FontFace = Font.fromEnum(value)
             end)
         else
-            pcall(function()
+            local Ok, Err = pcall(function()
                 Instance[key] = value
             end)
+
+            -- "The current thread cannot access 'Instance' (lacking capability Plugin)"
+            -- means the container the GUI lives in rejects writes. Re-host once and
+            -- retry; otherwise the property is silently lost and the menu renders
+            -- unstyled / collapsed / empty.
+            if not Ok and typeof(Err) == "string" and string.find(Err, "capability", 1, true) then
+                if EnsureGuiCapability and EnsureGuiCapability() then
+                    pcall(function()
+                        Instance[key] = value
+                    end)
+                end
+            end
         end
     end
 
@@ -1834,9 +1850,95 @@ local function SafeParentUI(Instance: Instance, Parent: Instance | () -> Instanc
     end
 end
 
+--// GUI capability probe \\--
+-- Roblox gates reads and writes on instances that live inside a Plugin-capability
+-- container (CoreGui / gethui()). Some executors -- and sandboxed game contexts --
+-- do not grant `Plugin` to the script thread, so every such write throws
+--     "The current thread cannot access 'Instance' (lacking capability Plugin)"
+-- and the write is lost. Because the whole UI is built inside that container, the
+-- symptom is a menu that renders but stays unstyled / collapsed / empty.
+-- PlayerGui is not capability gated, so probe the container we are about to use and
+-- re-host the UI there when it turns out to be read-only for us.
+local function GuiWritable(Container: Instance?): boolean
+    if not Container then
+        return false
+    end
+
+    local Ok, Result = pcall(function()
+        local Probe = Instance.new("Frame")
+        Probe.Name = "ObsidianCapabilityProbe"
+        Probe.Parent = Container
+        Probe.BackgroundTransparency = 0.5
+
+        local ReadBack = Probe.BackgroundTransparency
+        Probe:Destroy()
+
+        return ReadBack == 0.5
+    end)
+
+    return Ok and Result == true
+end
+
+local function GetPlayerGui(): Instance?
+    local LocalPlayer = Library.LocalPlayer or Players.LocalPlayer
+    if not LocalPlayer then
+        return nil
+    end
+
+    return LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui", 5)
+end
+
+function EnsureGuiCapability(): boolean
+    local ScreenGui = Library.ScreenGui
+    if not ScreenGui then
+        return true
+    end
+
+    if GuiWritable(ScreenGui.Parent) then
+        return true
+    end
+
+    local PlayerGui = GetPlayerGui()
+    if not PlayerGui then
+        return false
+    end
+
+    local Moved = pcall(function()
+        ScreenGui.Parent = PlayerGui
+    end)
+
+    if Moved and not Library.GuiCapabilityWarned then
+        Library.GuiCapabilityWarned = true
+        warn("[Obsidian] GUI container rejected writes (lacking capability Plugin) - re-hosted in PlayerGui.")
+    end
+
+    return Moved and GuiWritable(ScreenGui.Parent)
+end
+
+function Library:EnsureGuiCapability(): boolean
+    return EnsureGuiCapability()
+end
+
 local function ParentUI(UI: Instance, SkipHiddenUI: boolean?)
     if SkipHiddenUI then
         SafeParentUI(UI, CoreGui)
+        return
+    end
+
+    -- Try the executor's protected container first, but only move in when this thread
+    -- can actually write there (see GuiWritable). Probing before the move matters:
+    -- once the UI lives in a read-only container every later property write is lost.
+    local Ok, Container = pcall(gethui)
+    if Ok and Container and GuiWritable(Container) then
+        pcall(protectgui, UI)
+        SafeParentUI(UI, Container)
+        return
+    end
+
+    -- Capability-limited context: PlayerGui is not gated, so host the UI there.
+    local PlayerGui = GetPlayerGui()
+    if PlayerGui then
+        SafeParentUI(UI, PlayerGui)
         return
     end
 
@@ -11666,22 +11768,30 @@ function Library:CreateWindow(WindowInfo)
         end
 
         local function RefreshConfigPillLabel()
+            EnsureGuiCapability()
+
             local Handler = Library.ConfigPillHandler
+            local Text = nil
+
             if Handler and Handler.GetActive then
                 local Ok, Name = pcall(Handler.GetActive)
                 if Ok and typeof(Name) == "string" and Name ~= "" then
-                    ConfigPillLabel.Text = Name
-                    return
+                    Text = Name
                 end
             end
 
-            if ConfigPillLabel.Text == "" then
-                ConfigPillLabel.Text = "default"
-            end
+            pcall(function()
+                if Text then
+                    ConfigPillLabel.Text = Text
+                elseif ConfigPillLabel.Text == "" then
+                    ConfigPillLabel.Text = "default"
+                end
+            end)
         end
 
         local function OpenConfigPillDropdown()
             CloseConfigPillDropdown()
+            EnsureGuiCapability()
 
             local Handler = Library.ConfigPillHandler
             local Configs = {}
@@ -11859,7 +11969,10 @@ function Library:CreateWindow(WindowInfo)
         end
 
         function Library:SetConfigPillLabel(Text: string)
-            ConfigPillLabel.Text = tostring(Text or "default")
+            EnsureGuiCapability()
+            pcall(function()
+                ConfigPillLabel.Text = tostring(Text or "default")
+            end)
         end
 
         RefreshWindowTitleSize = function()
@@ -13504,6 +13617,10 @@ function Library:CreateWindow(WindowInfo)
         --// 3D Viewport Skin Changer Component \\--
         function Tab:AddSkinChanger(Info)
             Info = Info or {}
+
+            -- The grid below creates and styles hundreds of GuiObjects; make sure the
+            -- container actually accepts writes before we start.
+            EnsureGuiCapability()
 
             -- Hide default side columns in this Tab
             TabLeft.Visible = false
