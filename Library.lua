@@ -365,6 +365,13 @@ local Library = {
     Scales = {},
     ScalesOffset = {},
 
+    --// Accent Refreshers \\--
+    -- Some elements (skin-tile outlines, the active tab pill icon) are styled
+    -- imperatively at build/show time instead of through the registry, so they do
+    -- not follow a theme switch on their own. Builders push a callback here and
+    -- UpdateColorsUsingRegistry() re-runs them whenever the accent changes.
+    AccentRefreshers = {},
+
     --// Mouse \\--
     OriginalMouseIconEnabled = UserInputService.MouseIconEnabled,
     ShowCursorBinding = string.sub(tostring({}), 10),
@@ -1537,6 +1544,13 @@ function Library:UpdateColorsUsingRegistry()
                 end)
             end
         end
+    end
+
+    -- Imperatively-styled elements that are not registry-tracked (skin tile
+    -- outlines, active tab pill icon) re-apply themselves here so they follow
+    -- the accent color on a live theme switch.
+    for _, Refresh in Library.AccentRefreshers do
+        pcall(Refresh)
     end
 end
 
@@ -12762,7 +12776,8 @@ function Library:CreateWindow(WindowInfo)
             })
 
             local TabStroke = New("UIStroke", {
-                Color = Color3.fromRGB(123, 97, 255),
+                -- Accent-driven: the active pill outline follows the theme accent color.
+                Color = "AccentColor",
                 Thickness = 1.2,
                 Transparency = 1,
                 Parent = TabButton,
@@ -14612,7 +14627,8 @@ function Library:CreateWindow(WindowInfo)
             New("UICorner", { CornerRadius = UDim.new(1, 0), Parent = WearSliderTrack })
 
             local WearSliderFill = New("Frame", {
-                BackgroundColor3 = Color3.fromRGB(123, 97, 255),
+                -- Accent-driven (registry key, so ThemeManager recolours it live).
+                BackgroundColor3 = "AccentColor",
                 BorderSizePixel = 0,
                 Size = UDim2.new(SkinChanger.CurrentWear / 100, 0, 1, 0),
                 Parent = WearSliderTrack,
@@ -14621,7 +14637,16 @@ function Library:CreateWindow(WindowInfo)
 
             local WearSliderKnob = New("Frame", {
                 AnchorPoint = Vector2.new(0.5, 0.5),
-                BackgroundColor3 = Color3.fromRGB(220, 210, 255),
+                -- Accent-driven: a lightened tint of the live accent instead of a
+                -- hardcoded lilac, so the knob matches the track under any theme.
+                BackgroundColor3 = (function()
+                    local a = Library.Scheme.AccentColor
+                    return Color3.new(
+                        a.R + (1 - a.R) * 0.62,
+                        a.G + (1 - a.G) * 0.62,
+                        a.B + (1 - a.B) * 0.62
+                    )
+                end)(),
                 BorderSizePixel = 0,
                 Position = UDim2.new(SkinChanger.CurrentWear / 100, 0, 0.5, 0),
                 Size = UDim2.fromOffset(10, 10),
@@ -14817,6 +14842,28 @@ function Library:CreateWindow(WindowInfo)
             local KnifeCards = {}
             local GloveCards = {}
 
+            -- Shared selection styler for skin tiles. Factored out so the same logic
+            -- can be re-run on a live theme switch (see the AccentRefreshers below);
+            -- the selected tile's outline always uses the current accent color.
+            local function ApplyCardSelection(cards, selectedName)
+                for sName, card in pairs(cards) do
+                    local sel = (sName == selectedName)
+                    card.Tile.BackgroundColor3 = sel and Color3.fromRGB(34, 30, 50) or Color3.fromRGB(24, 24, 28)
+                    card.Stroke.Color = sel and Library.Scheme.AccentColor or Color3.fromRGB(36, 36, 42)
+                    card.Stroke.Thickness = sel and 1.5 or 1
+                    card.Label.TextColor3 = sel and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(150, 150, 164)
+                end
+            end
+
+            -- Re-apply the selected outline on accent change. Each entry captures the
+            -- card table + the skin that is currently equipped for that grid, so a
+            -- theme switch recolors the outline immediately (tiles otherwise only
+            -- restyle on click or on a full grid rebuild).
+            table.insert(Library.AccentRefreshers, function()
+                pcall(ApplyCardSelection, KnifeCards, SkinChanger.EquippedSkins[ResolveItemName(SkinChanger.ActiveKnife) or SkinChanger.ActiveKnife])
+                pcall(ApplyCardSelection, GloveCards, SkinChanger.EquippedGloves[SkinChanger.ActiveGlove])
+            end)
+
             local function PopulateKnivesGrid(selection)
                 -- The model list only carries the "knife" category; the concrete knife comes
                 -- from the type selector. Everything below keeps working with a real name,
@@ -14861,7 +14908,8 @@ function Library:CreateWindow(WindowInfo)
                     })
                     New("UICorner", { CornerRadius = UDim.new(0, 8), Parent = tile })
                     local tileStroke = New("UIStroke", {
-                        Color = isEq and Color3.fromRGB(123, 97, 255) or Color3.fromRGB(36, 36, 42),
+                        -- Accent-driven: the selected tile outline uses the live theme accent.
+                        Color = isEq and Library.Scheme.AccentColor or Color3.fromRGB(36, 36, 42),
                         Thickness = isEq and 1.5 or 1,
                         Parent = tile,
                     })
@@ -14900,13 +14948,7 @@ function Library:CreateWindow(WindowInfo)
                         -- GUI writes inside an engine-signal callback need the capability
                         -- re-asserted on some executors (see CapabilitySafe).
                         CapabilitySafe(function()
-                            for sName, card in pairs(KnifeCards) do
-                                local sel = (sName == sData.Name)
-                                card.Tile.BackgroundColor3 = sel and Color3.fromRGB(34, 30, 50) or Color3.fromRGB(24, 24, 28)
-                                card.Stroke.Color = sel and Color3.fromRGB(123, 97, 255) or Color3.fromRGB(36, 36, 42)
-                                card.Stroke.Thickness = sel and 1.5 or 1
-                                card.Label.TextColor3 = sel and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(150, 150, 164)
-                            end
+                            ApplyCardSelection(KnifeCards, sData.Name)
                         end)
                         if OnSkinSelected then
                             pcall(OnSkinSelected, knifeName, sData.Name, sData.Folder, { Name = knifeName, Skin = sData.Name })
@@ -14957,7 +14999,8 @@ function Library:CreateWindow(WindowInfo)
                     })
                     New("UICorner", { CornerRadius = UDim.new(0, 8), Parent = tile })
                     local tileStroke = New("UIStroke", {
-                        Color = isEq and Color3.fromRGB(123, 97, 255) or Color3.fromRGB(36, 36, 42),
+                        -- Accent-driven: the selected tile outline uses the live theme accent.
+                        Color = isEq and Library.Scheme.AccentColor or Color3.fromRGB(36, 36, 42),
                         Thickness = isEq and 1.5 or 1,
                         Parent = tile,
                     })
@@ -14994,13 +15037,7 @@ function Library:CreateWindow(WindowInfo)
                     tile.MouseButton1Click:Connect(function()
                         SkinChanger.EquippedGloves[gloveName] = sData.Name
                         CapabilitySafe(function()
-                            for sName, card in pairs(GloveCards) do
-                                local sel = (sName == sData.Name)
-                                card.Tile.BackgroundColor3 = sel and Color3.fromRGB(34, 30, 50) or Color3.fromRGB(24, 24, 28)
-                                card.Stroke.Color = sel and Color3.fromRGB(123, 97, 255) or Color3.fromRGB(36, 36, 42)
-                                card.Stroke.Thickness = sel and 1.5 or 1
-                                card.Label.TextColor3 = sel and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(150, 150, 164)
-                            end
+                            ApplyCardSelection(GloveCards, sData.Name)
                         end)
                         if OnGloveSkinSelected then
                             pcall(OnGloveSkinSelected, gloveName, sData.Name, sData.Folder, { Name = gloveName, Skin = sData.Name })
@@ -15094,6 +15131,24 @@ function Library:CreateWindow(WindowInfo)
 
         local TabPillTweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
+        -- Keep this tab pill's accent-colored parts (stroke + icon) in sync with the
+        -- theme accent when it changes while the menu is open. Tab:Show/Hover only run
+        -- on interaction, so without this a theme switch would leave stale purple.
+        table.insert(Library.AccentRefreshers, function()
+            if Tab.Destroyed then
+                return
+            end
+
+            local Stroke = TabButton:FindFirstChildOfClass("UIStroke")
+            if Stroke then
+                Stroke.Color = Library.Scheme.AccentColor
+            end
+
+            if TabIcon and Library.ActiveTab == Tab then
+                TabIcon.ImageColor3 = Library.Scheme.AccentColor
+            end
+        end)
+
         function Tab:Hover(Hovering)
             if Library.ActiveTab == Tab then
                 return
@@ -15137,8 +15192,11 @@ function Library:CreateWindow(WindowInfo)
                 TextColor3 = Color3.fromRGB(255, 255, 255)
             }):Play()
             if TabIcon then
+                -- Accent-driven: was a hardcoded lilac (168,140,255). Re-read the live
+                -- accent so the icon tracks the selected theme.
+                TabIcon.ImageColor3 = Library.Scheme.AccentColor
                 TweenService:Create(TabIcon, TabPillTweenInfo, {
-                    ImageColor3 = Color3.fromRGB(168, 140, 255)
+                    ImageColor3 = Library.Scheme.AccentColor
                 }):Play()
             end
 
