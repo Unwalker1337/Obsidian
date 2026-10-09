@@ -12086,23 +12086,33 @@ function Library:CreateWindow(WindowInfo)
         local function SettingsRow(Parent: Instance, Text: string, Active: boolean, OnClick: () -> ()): TextButton
             local Row = New("TextButton", {
                 AutoButtonColor = false,
-                BackgroundColor3 = Active and Color3.fromRGB(38, 32, 58) or Color3.fromRGB(22, 22, 27),
+                BackgroundColor3 = Active and "AccentColor" or function()
+                    return Library:GetBetterColor(Library.Scheme.BackgroundColor, 2)
+                end,
                 BackgroundTransparency = Active and 0 or 1,
                 BorderSizePixel = 0,
                 Size = UDim2.new(1, 0, 0, 22),
                 Text = Text,
-                TextColor3 = Active and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(170, 170, 180),
+                TextColor3 = Active and Color3.fromRGB(255, 255, 255) or "FontColor",
+                TextTransparency = Active and 0 or 0.25,
                 TextSize = 11,
+                Font = function() return Library.Scheme.Font end,
                 TextXAlignment = Enum.TextXAlignment.Left,
                 ZIndex = 31,
                 Parent = Parent,
             })
-            New("UICorner", { CornerRadius = UDim.new(0, 4), Parent = Row })
-            New("UIPadding", { PaddingLeft = UDim.new(0, 6), Parent = Row })
+            New("UICorner", { CornerRadius = UDim.new(0, 5), Parent = Row })
+            New("UIPadding", { PaddingLeft = UDim.new(0, 8), Parent = Row })
 
             if not Active then
-                Row.MouseEnter:Connect(function() Row.BackgroundTransparency = 0 end)
-                Row.MouseLeave:Connect(function() Row.BackgroundTransparency = 1 end)
+                Row.MouseEnter:Connect(function()
+                    Row.BackgroundTransparency = 0
+                    Row.TextTransparency = 0
+                end)
+                Row.MouseLeave:Connect(function()
+                    Row.BackgroundTransparency = 1
+                    Row.TextTransparency = 0.25
+                end)
             end
 
             Row.MouseButton1Click:Connect(function()
@@ -12117,7 +12127,8 @@ function Library:CreateWindow(WindowInfo)
                 BackgroundTransparency = 1,
                 Size = UDim2.new(1, 0, 0, 14),
                 Text = Title,
-                TextColor3 = Color3.fromRGB(120, 120, 130),
+                TextColor3 = "SubTextColor",
+                Font = function() return Library.Scheme.Font end,
                 TextSize = 11,
                 TextXAlignment = Enum.TextXAlignment.Left,
                 ZIndex = 30,
@@ -12125,17 +12136,19 @@ function Library:CreateWindow(WindowInfo)
             })
 
             local Scroll = New("ScrollingFrame", {
-                BackgroundColor3 = Color3.fromRGB(16, 16, 20),
+                BackgroundColor3 = function()
+                    return Library:GetBetterColor(Library.Scheme.BackgroundColor, -1)
+                end,
                 BorderSizePixel = 0,
                 Size = UDim2.new(1, 0, 0, Height),
                 CanvasSize = UDim2.fromScale(0, 0),
                 AutomaticCanvasSize = Enum.AutomaticSize.Y,
                 ScrollBarThickness = 3,
-                ScrollBarImageColor3 = Color3.fromRGB(50, 50, 60),
+                ScrollBarImageColor3 = "OutlineColor",
                 ZIndex = 30,
                 Parent = Parent,
             })
-            New("UICorner", { CornerRadius = UDim.new(0, 4), Parent = Scroll })
+            New("UICorner", { CornerRadius = UDim.new(0, 6), Parent = Scroll })
             New("UIPadding", {
                 PaddingTop = UDim.new(0, 3),
                 PaddingBottom = UDim.new(0, 3),
@@ -12150,6 +12163,132 @@ function Library:CreateWindow(WindowInfo)
                     OnPick(Item)
                 end)
             end
+        end
+
+        local function SettingsTransparencySlider(Parent: Instance)
+            New("TextLabel", {
+                BackgroundTransparency = 1,
+                Size = UDim2.new(1, 0, 0, 14),
+                Text = "ui transparency",
+                TextColor3 = "SubTextColor",
+                Font = function() return Library.Scheme.Font end,
+                TextSize = 11,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                ZIndex = 30,
+                Parent = Parent,
+            })
+
+            local SliderCard = New("Frame", {
+                BackgroundColor3 = function()
+                    return Library:GetBetterColor(Library.Scheme.BackgroundColor, -1)
+                end,
+                BorderSizePixel = 0,
+                Size = UDim2.new(1, 0, 0, 28),
+                ZIndex = 30,
+                Parent = Parent,
+            })
+            New("UICorner", { CornerRadius = UDim.new(0, 6), Parent = SliderCard })
+            New("UIPadding", {
+                PaddingLeft = UDim.new(0, 8),
+                PaddingRight = UDim.new(0, 8),
+                Parent = SliderCard,
+            })
+
+            local curTrans = Library.WindowTransparency or 0
+            local Badge = New("TextLabel", {
+                AnchorPoint = Vector2.new(1, 0.5),
+                BackgroundTransparency = 1,
+                Position = UDim2.new(1, 0, 0.5, 0),
+                Size = UDim2.fromOffset(36, 16),
+                Text = tostring(math.floor(curTrans * 100)) .. "%",
+                TextColor3 = "FontColor",
+                Font = function() return Library.Scheme.Font end,
+                TextSize = 11,
+                TextXAlignment = Enum.TextXAlignment.Right,
+                ZIndex = 31,
+                Parent = SliderCard,
+            })
+
+            local Track = New("Frame", {
+                AnchorPoint = Vector2.new(0, 0.5),
+                BackgroundColor3 = function()
+                    return Library:GetBetterColor(Library.Scheme.BackgroundColor, 3)
+                end,
+                BorderSizePixel = 0,
+                Position = UDim2.new(0, 0, 0.5, 0),
+                Size = UDim2.new(1, -42, 0, 4),
+                ZIndex = 31,
+                Parent = SliderCard,
+            })
+            New("UICorner", { CornerRadius = UDim.new(1, 0), Parent = Track })
+
+            local fracInit = math.clamp(curTrans / 0.85, 0, 1)
+            local Fill = New("Frame", {
+                BackgroundColor3 = "AccentColor",
+                BorderSizePixel = 0,
+                Size = UDim2.new(fracInit, 0, 1, 0),
+                ZIndex = 32,
+                Parent = Track,
+            })
+            New("UICorner", { CornerRadius = UDim.new(1, 0), Parent = Fill })
+
+            local Knob = New("Frame", {
+                AnchorPoint = Vector2.new(0.5, 0.5),
+                BackgroundColor3 = function()
+                    return Library:GetBetterColor(Library.Scheme.AccentColor, 3)
+                end,
+                BorderSizePixel = 0,
+                Position = UDim2.new(fracInit, 0, 0.5, 0),
+                Size = UDim2.fromOffset(10, 10),
+                ZIndex = 33,
+                Parent = Track,
+            })
+            New("UICorner", { CornerRadius = UDim.new(1, 0), Parent = Knob })
+
+            local dragging = false
+            local function UpdateTrans(input)
+                local trackX = Track.AbsolutePosition.X
+                local trackW = Track.AbsoluteSize.X
+                if trackW <= 0 then return end
+                local frac = math.clamp((input.Position.X - trackX) / trackW, 0, 1)
+                local transVal = math.floor(frac * 85) / 100
+                Fill.Size = UDim2.new(frac, 0, 1, 0)
+                Knob.Position = UDim2.new(frac, 0, 0.5, 0)
+                Badge.Text = tostring(math.floor(transVal * 100)) .. "%"
+
+                if Library.SetTransparency then
+                    Library:SetTransparency(transVal)
+                end
+
+                local Handler = Library.SettingsHandler
+                if Handler and Handler.OnSelectTransparency then
+                    pcall(Handler.OnSelectTransparency, transVal)
+                end
+            end
+
+            local DragBtn = New("TextButton", {
+                BackgroundTransparency = 1,
+                Size = UDim2.fromScale(1, 1),
+                Text = "",
+                ZIndex = 34,
+                Parent = SliderCard,
+            })
+            DragBtn.InputBegan:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                    dragging = true
+                    UpdateTrans(input)
+                end
+            end)
+            UserInputService.InputChanged:Connect(function(input)
+                if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+                    UpdateTrans(input)
+                end
+            end)
+            UserInputService.InputEnded:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                    dragging = false
+                end
+            end)
         end
 
         local function OpenSettingsPopup()
@@ -12180,40 +12319,44 @@ function Library:CreateWindow(WindowInfo)
 
             local GearPos, GearSize = GearButton.AbsolutePosition, GearButton.AbsoluteSize
             local MainPos = MainFrame.AbsolutePosition
-            local Width = 190
+            local Width = 196
 
             SettingsPopup = New("Frame", {
                 Name = "SettingsPopup",
-                BackgroundColor3 = Color3.fromRGB(18, 18, 22),
+                BackgroundColor3 = function()
+                    return Library:GetBetterColor(Library.Scheme.BackgroundColor, 1)
+                end,
                 BorderSizePixel = 0,
                 ClipsDescendants = true,
                 Position = UDim2.fromOffset(
                     GearPos.X - MainPos.X - (Width - GearSize.X),
                     GearPos.Y - MainPos.Y + GearSize.Y + 4
                 ),
-                Size = UDim2.fromOffset(Width, 332),
+                Size = UDim2.fromOffset(Width, 362),
                 ZIndex = 29,
                 Parent = MainFrame,
             })
-            New("UICorner", { CornerRadius = UDim.new(0, 6), Parent = SettingsPopup })
-            New("UIStroke", { Color = Color3.fromRGB(45, 45, 55), Thickness = 1, Parent = SettingsPopup })
+            New("UICorner", { CornerRadius = UDim.new(0, 8), Parent = SettingsPopup })
+            New("UIStroke", { Color = "OutlineColor", Thickness = 1, Parent = SettingsPopup })
             New("UIPadding", {
-                PaddingTop = UDim.new(0, 6),
-                PaddingBottom = UDim.new(0, 6),
-                PaddingLeft = UDim.new(0, 6),
-                PaddingRight = UDim.new(0, 6),
+                PaddingTop = UDim.new(0, 8),
+                PaddingBottom = UDim.new(0, 8),
+                PaddingLeft = UDim.new(0, 8),
+                PaddingRight = UDim.new(0, 8),
                 Parent = SettingsPopup,
             })
-            New("UIListLayout", { Padding = UDim.new(0, 4), Parent = SettingsPopup })
+            New("UIListLayout", { Padding = UDim.new(0, 5), Parent = SettingsPopup })
 
-            SettingsList(SettingsPopup, "theme", Themes, ActiveTheme, 160, function(Name)
+            SettingsTransparencySlider(SettingsPopup)
+
+            SettingsList(SettingsPopup, "theme", Themes, ActiveTheme, 126, function(Name)
                 if Handler.OnSelectTheme then
                     pcall(Handler.OnSelectTheme, Name)
                 end
                 CloseSettingsPopup()
             end)
 
-            SettingsList(SettingsPopup, "font", Fonts, ActiveFont, 130, function(Name)
+            SettingsList(SettingsPopup, "font", Fonts, ActiveFont, 116, function(Name)
                 if Handler.OnSelectFont then
                     pcall(Handler.OnSelectFont, Name)
                 end
@@ -14315,12 +14458,14 @@ function Library:CreateWindow(WindowInfo)
                     local isSel = (string.lower(it) == string.lower(currentVal))
                     local itBtn = New("TextButton", {
                         AutoButtonColor = false,
-                        BackgroundColor3 = isSel and Color3.fromRGB(38, 32, 58) or Color3.fromRGB(22, 22, 27),
+                        BackgroundColor3 = isSel and "AccentColor" or function() return Library:GetBetterColor(Library.Scheme.BackgroundColor, 2) end,
                         BackgroundTransparency = isSel and 0 or 1,
                         BorderSizePixel = 0,
                         Size = UDim2.new(1, 0, 0, 24),
                         Text = string.lower(it),
-                        TextColor3 = isSel and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(170, 170, 180),
+                        TextColor3 = isSel and Color3.fromRGB(255, 255, 255) or "FontColor",
+                        TextTransparency = isSel and 0 or 0.25,
+                        Font = function() return Library.Scheme.Font end,
                         TextSize = 12,
                         TextXAlignment = Enum.TextXAlignment.Left,
                         ZIndex = 26,
@@ -14387,14 +14532,14 @@ function Library:CreateWindow(WindowInfo)
             })
 
             local KnivesCtrlCard = New("Frame", {
-                BackgroundColor3 = Color3.fromRGB(24, 24, 28),
+                BackgroundColor3 = function() return Library:GetBetterColor(Library.Scheme.BackgroundColor, 1) end,
                 BorderSizePixel = 0,
                 Position = UDim2.fromOffset(0, 20),
                 Size = UDim2.new(1, 0, 0, 68),
                 Parent = KnivesCol,
             })
             New("UICorner", { CornerRadius = UDim.new(0, 8), Parent = KnivesCtrlCard })
-            New("UIStroke", { Color = Color3.fromRGB(36, 36, 42), Thickness = 1, Parent = KnivesCtrlCard })
+            New("UIStroke", { Color = "OutlineColor", Thickness = 1, Parent = KnivesCtrlCard })
 
             -- Row 1: model label & selector button
             local KnivesModelLabel = New("TextLabel", {
@@ -14410,7 +14555,7 @@ function Library:CreateWindow(WindowInfo)
 
             local KnivesModelBtn = New("TextButton", {
                 AutoButtonColor = false,
-                BackgroundColor3 = Color3.fromRGB(32, 32, 38),
+                BackgroundColor3 = function() return Library:GetBetterColor(Library.Scheme.BackgroundColor, 2) end,
                 BorderSizePixel = 0,
                 AnchorPoint = Vector2.new(1, 0),
                 Position = UDim2.new(1, -10, 0, 8),
@@ -14419,7 +14564,7 @@ function Library:CreateWindow(WindowInfo)
                 Parent = KnivesCtrlCard,
             })
             New("UICorner", { CornerRadius = UDim.new(0, 5), Parent = KnivesModelBtn })
-            New("UIStroke", { Color = Color3.fromRGB(46, 46, 54), Thickness = 1, Parent = KnivesModelBtn })
+            New("UIStroke", { Color = "OutlineColor", Thickness = 1, Parent = KnivesModelBtn })
 
             local KnivesModelBtnLabel = New("TextLabel", {
                 BackgroundTransparency = 1,
@@ -14457,18 +14602,19 @@ function Library:CreateWindow(WindowInfo)
             })
 
             local WearBadge = New("TextLabel", {
-                BackgroundColor3 = Color3.fromRGB(32, 32, 38),
+                BackgroundColor3 = function() return Library:GetBetterColor(Library.Scheme.BackgroundColor, 2) end,
                 BorderSizePixel = 0,
                 AnchorPoint = Vector2.new(0.5, 0.5),
                 Position = UDim2.new(0.5, -45, 0, 50),
                 Size = UDim2.fromOffset(36, 18),
                 Text = tostring(math.floor(SkinChanger.CurrentWear)) .. "%",
-                TextColor3 = Color3.fromRGB(220, 220, 230),
+                TextColor3 = "FontColor",
+                Font = function() return Library.Scheme.Font end,
                 TextSize = 11,
                 Parent = KnivesCtrlCard,
             })
             New("UICorner", { CornerRadius = UDim.new(0, 4), Parent = WearBadge })
-            New("UIStroke", { Color = Color3.fromRGB(46, 46, 54), Thickness = 1, Parent = WearBadge })
+            New("UIStroke", { Color = "OutlineColor", Thickness = 1, Parent = WearBadge })
 
             local WearSliderTrack = New("Frame", {
                 BackgroundColor3 = Color3.fromRGB(38, 38, 46),
@@ -14481,7 +14627,7 @@ function Library:CreateWindow(WindowInfo)
             New("UICorner", { CornerRadius = UDim.new(1, 0), Parent = WearSliderTrack })
 
             local WearSliderFill = New("Frame", {
-                BackgroundColor3 = Color3.fromRGB(123, 97, 255),
+                BackgroundColor3 = "AccentColor",
                 BorderSizePixel = 0,
                 Size = UDim2.new(SkinChanger.CurrentWear / 100, 0, 1, 0),
                 Parent = WearSliderTrack,
@@ -14490,7 +14636,7 @@ function Library:CreateWindow(WindowInfo)
 
             local WearSliderKnob = New("Frame", {
                 AnchorPoint = Vector2.new(0.5, 0.5),
-                BackgroundColor3 = Color3.fromRGB(220, 210, 255),
+                BackgroundColor3 = function() return Library:GetBetterColor(Library.Scheme.AccentColor, 3) end,
                 BorderSizePixel = 0,
                 Position = UDim2.new(SkinChanger.CurrentWear / 100, 0, 0.5, 0),
                 Size = UDim2.fromOffset(10, 10),
@@ -14588,14 +14734,14 @@ function Library:CreateWindow(WindowInfo)
             })
 
             local GlovesCtrlCard = New("Frame", {
-                BackgroundColor3 = Color3.fromRGB(24, 24, 28),
+                BackgroundColor3 = function() return Library:GetBetterColor(Library.Scheme.BackgroundColor, 1) end,
                 BorderSizePixel = 0,
                 Position = UDim2.fromOffset(0, 20),
                 Size = UDim2.new(1, 0, 0, 38),
                 Parent = GlovesCol,
             })
             New("UICorner", { CornerRadius = UDim.new(0, 8), Parent = GlovesCtrlCard })
-            New("UIStroke", { Color = Color3.fromRGB(36, 36, 42), Thickness = 1, Parent = GlovesCtrlCard })
+            New("UIStroke", { Color = "OutlineColor", Thickness = 1, Parent = GlovesCtrlCard })
 
             local GlovesModelLabel = New("TextLabel", {
                 BackgroundTransparency = 1,
@@ -14610,7 +14756,7 @@ function Library:CreateWindow(WindowInfo)
 
             local GlovesModelBtn = New("TextButton", {
                 AutoButtonColor = false,
-                BackgroundColor3 = Color3.fromRGB(32, 32, 38),
+                BackgroundColor3 = function() return Library:GetBetterColor(Library.Scheme.BackgroundColor, 2) end,
                 BorderSizePixel = 0,
                 AnchorPoint = Vector2.new(1, 0.5),
                 Position = UDim2.new(1, -10, 0.5, 0),
@@ -14619,7 +14765,7 @@ function Library:CreateWindow(WindowInfo)
                 Parent = GlovesCtrlCard,
             })
             New("UICorner", { CornerRadius = UDim.new(0, 5), Parent = GlovesModelBtn })
-            New("UIStroke", { Color = Color3.fromRGB(46, 46, 54), Thickness = 1, Parent = GlovesModelBtn })
+            New("UIStroke", { Color = "OutlineColor", Thickness = 1, Parent = GlovesModelBtn })
 
             local GlovesModelBtnLabel = New("TextLabel", {
                 BackgroundTransparency = 1,
@@ -14755,10 +14901,10 @@ function Library:CreateWindow(WindowInfo)
                         CapabilitySafe(function()
                             for sName, card in pairs(KnifeCards) do
                                 local sel = (sName == sData.Name)
-                                card.Tile.BackgroundColor3 = sel and Color3.fromRGB(34, 30, 50) or Color3.fromRGB(24, 24, 28)
-                                card.Stroke.Color = sel and Color3.fromRGB(123, 97, 255) or Color3.fromRGB(36, 36, 42)
+                                card.Tile.BackgroundColor3 = sel and Library:GetBetterColor(Library.Scheme.AccentColor, -4) or Library:GetBetterColor(Library.Scheme.BackgroundColor, 1)
+                                card.Stroke.Color = sel and Library.Scheme.AccentColor or Library.Scheme.OutlineColor
                                 card.Stroke.Thickness = sel and 1.5 or 1
-                                card.Label.TextColor3 = sel and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(150, 150, 164)
+                                card.Label.TextColor3 = sel and Color3.fromRGB(255, 255, 255) or Library.Scheme.SubTextColor
                             end
                         end)
                         if OnSkinSelected then
@@ -14849,10 +14995,10 @@ function Library:CreateWindow(WindowInfo)
                         CapabilitySafe(function()
                             for sName, card in pairs(GloveCards) do
                                 local sel = (sName == sData.Name)
-                                card.Tile.BackgroundColor3 = sel and Color3.fromRGB(34, 30, 50) or Color3.fromRGB(24, 24, 28)
-                                card.Stroke.Color = sel and Color3.fromRGB(123, 97, 255) or Color3.fromRGB(36, 36, 42)
+                                card.Tile.BackgroundColor3 = sel and Library:GetBetterColor(Library.Scheme.AccentColor, -4) or Library:GetBetterColor(Library.Scheme.BackgroundColor, 1)
+                                card.Stroke.Color = sel and Library.Scheme.AccentColor or Library.Scheme.OutlineColor
                                 card.Stroke.Thickness = sel and 1.5 or 1
-                                card.Label.TextColor3 = sel and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(150, 150, 164)
+                                card.Label.TextColor3 = sel and Color3.fromRGB(255, 255, 255) or Library.Scheme.SubTextColor
                             end
                         end)
                         if OnGloveSkinSelected then
@@ -15997,8 +16143,18 @@ function Library:CreateWindow(WindowInfo)
             end
 
             if Cache[Prop] ~= nil and Cache[Prop] ~= 1 then
+                local targetVal
+                if Library.Toggled then
+                    if Desc == MainFrame and Prop == "BackgroundTransparency" then
+                        targetVal = Library.WindowTransparency or 0
+                    else
+                        targetVal = Cache[Prop]
+                    end
+                else
+                    targetVal = 1
+                end
                 TweenService:Create(Desc, Library.WindowAnimationInfo, {
-                    [Prop] = Library.Toggled and Cache[Prop] or 1,
+                    [Prop] = targetVal,
                 }):Play()
             end
         end
@@ -16107,7 +16263,29 @@ function Library:CreateWindow(WindowInfo)
         end
     end
 
-    function Library:Toggle(Value: boolean?)
+        function Window:SetTransparency(Transparency: number)
+        assert(typeof(Transparency) == "number", "Transparency must be a number between 0 and 1.")
+        local clamped = math.clamp(Transparency, 0, 0.85)
+        Library.WindowTransparency = clamped
+
+        if MainFrame then
+            MainFrame.BackgroundTransparency = clamped
+        end
+
+        if DockCard then
+            DockCard.BackgroundTransparency = math.clamp(clamped * 0.7, 0, 0.85)
+        end
+    end
+
+    function Library:SetTransparency(Transparency: number)
+        if Window and Window.SetTransparency then
+            return Window:SetTransparency(Transparency)
+        else
+            Library.WindowTransparency = math.clamp(Transparency, 0, 0.85)
+        end
+    end
+
+function Library:Toggle(Value: boolean?)
         return Window:Toggle(Value)
     end
 
