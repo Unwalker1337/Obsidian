@@ -13407,58 +13407,177 @@ function Library:CreateWindow(WindowInfo)
                 vp.LightColor = Color3.fromRGB(255, 255, 255)
                 vp.LightDirection = Vector3.new(-1, -1.2, -1)
 
-                local conn = nil
+                local baseDist = maxDim * 1.15
+                local baseUp   = maxDim * 0.22
+                local zoomScale = 1.0
+                local minZoom   = 0.35
+                local maxZoom   = 2.5
+
+                local controller = {
+                    Connections = {},
+                    Zoom = function(self, newZoom)
+                        zoomScale = math.clamp(newZoom, minZoom, maxZoom)
+                    end,
+                    Disconnect = function(self)
+                        for _, c in ipairs(self.Connections) do
+                            pcall(function() c:Disconnect() end)
+                        end
+                        table.clear(self.Connections)
+                    end
+                }
+
                 if rotateContinuously then
                     local angle = 0
-                    conn = RunService.RenderStepped:Connect(function(dt)
+                    local pitch = math.rad(10)
+                    local isDragging = false
+                    local isHovered = false
+                    local lastMousePos = Vector2.new()
+
+                    -- Mouse hover detection for wheel zoom
+                    table.insert(controller.Connections, vp.MouseEnter:Connect(function()
+                        isHovered = true
+                    end))
+                    table.insert(controller.Connections, vp.MouseLeave:Connect(function()
+                        isHovered = false
+                        isDragging = false
+                    end))
+
+                    -- Mouse wheel zooming (scroll up = zoom in, scroll down = zoom out)
+                    table.insert(controller.Connections, UserInputService.InputChanged:Connect(function(input)
+                        if input.UserInputType == Enum.UserInputType.MouseWheel and isHovered then
+                            local delta = input.Position.Z
+                            zoomScale = math.clamp(zoomScale - delta * 0.12, minZoom, maxZoom)
+                        elseif isDragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+                            local currentPos = Vector2.new(input.Position.X, input.Position.Y)
+                            local diff = currentPos - lastMousePos
+                            lastMousePos = currentPos
+                            angle = (angle - diff.X * 0.6) % 360
+                            pitch = math.clamp(pitch + math.rad(diff.Y * 0.5), -math.rad(45), math.rad(45))
+                        end
+                    end))
+
+                    -- Mouse drag for 360 manual rotation
+                    table.insert(controller.Connections, vp.InputBegan:Connect(function(input)
+                        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                            isDragging = true
+                            lastMousePos = Vector2.new(input.Position.X, input.Position.Y)
+                        end
+                    end))
+
+                    table.insert(controller.Connections, UserInputService.InputEnded:Connect(function(input)
+                        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                            isDragging = false
+                        end
+                    end))
+
+                    -- RenderStepped orbit loop
+                    table.insert(controller.Connections, RunService.RenderStepped:Connect(function(dt)
                         if not vp.Parent or not vp.Visible or not TabContainer.Visible then return end
-                        angle = (angle + dt * 42) % 360
+                        if not isDragging then
+                            angle = (angle + dt * 38) % 360
+                        end
+
                         local rad = math.rad(angle)
-                        local orbitOffset = (cf.RightVector * math.cos(rad) + cf.LookVector * math.sin(rad)) * (maxDim * 1.15) + (cf.UpVector * (maxDim * 0.25))
-                        cam.CFrame = CFrame.new(center + orbitOffset, center)
-                    end)
+                        local cosA = math.cos(rad)
+                        local sinA = math.sin(rad)
+                        local cosP = math.cos(pitch)
+                        local sinP = math.sin(pitch)
+
+                        local dist = baseDist * zoomScale
+                        local horiz = (cf.RightVector * cosA + cf.LookVector * sinA) * (dist * cosP)
+                        local vert  = (cf.UpVector * (dist * sinP + baseUp * zoomScale))
+                        local orbitPos = center + horiz + vert
+
+                        cam.CFrame = CFrame.new(orbitPos, center)
+                    end))
                 end
 
-                return conn, targetModel
+                return controller, targetModel
             end
 
             local function ApplySkinTextures(targetModel, skinFolder)
                 if not targetModel or not skinFolder then return end
 
-                if CustomApplySkin then
-                    local ok = pcall(function()
-                        local source = skinFolder:FindFirstChild("Camera")
-                        local fn = source and source:FindFirstChild("Factory New")
-                        CustomApplySkin(targetModel, fn or source or skinFolder)
-                    end)
-                    if ok then return end
-                end
-
                 pcall(function()
-                    local skinParts = {}
-                    for _, desc in ipairs(skinFolder:GetDescendants()) do
-                        if desc:IsA("BasePart") or desc:IsA("SurfaceAppearance") or desc:IsA("Texture") or desc:IsA("Decal") then
-                            skinParts[desc.Name] = desc
+                    -- 1. Find the best wear folder (prefer Factory New, Minimal Wear, etc.)
+                    local sourceFolder = skinFolder:FindFirstChild("Camera") or skinFolder:FindFirstChild("Character") or skinFolder
+                    local wearFolder = sourceFolder:FindFirstChild("Factory New")
+                        or sourceFolder:FindFirstChild("Minimal Wear")
+                        or sourceFolder:FindFirstChild("Field-Tested")
+                        or sourceFolder:FindFirstChild("Well-Worn")
+                        or sourceFolder:FindFirstChild("Battle-Scarred")
+
+                    if not wearFolder then
+                        for _, ch in ipairs(sourceFolder:GetChildren()) do
+                            if ch:IsA("Folder") then
+                                wearFolder = ch
+                                break
+                            end
                         end
                     end
 
+                    local searchScope = wearFolder or sourceFolder
+
+                    -- 2. Build a map of SurfaceAppearance objects
+                    local saMap = {}
+                    local saList = {}
+                    for _, desc in ipairs(searchScope:GetDescendants()) do
+                        if desc:IsA("SurfaceAppearance") then
+                            saMap[string.lower(desc.Name)] = desc
+                            table.insert(saList, desc)
+                        end
+                    end
+
+                    -- If searchScope had no SurfaceAppearances, search the entire skinFolder
+                    if #saList == 0 and searchScope ~= skinFolder then
+                        for _, desc in ipairs(skinFolder:GetDescendants()) do
+                            if desc:IsA("SurfaceAppearance") then
+                                saMap[string.lower(desc.Name)] = desc
+                                table.insert(saList, desc)
+                            end
+                        end
+                    end
+
+                    -- 3. Invoke game native ApplySkin if present
+                    if CustomApplySkin and wearFolder then
+                        pcall(function()
+                            CustomApplySkin(targetModel, wearFolder)
+                        end)
+                    end
+
+                    -- 4. Apply SurfaceAppearance and TextureID to every MeshPart in targetModel
                     for _, part in ipairs(targetModel:GetDescendants()) do
                         if part:IsA("MeshPart") then
-                            local skinSource = skinParts[part.Name]
-                            if skinSource then
-                                if skinSource:IsA("MeshPart") then
-                                    if skinSource.TextureID ~= "" then
-                                        part.TextureID = skinSource.TextureID
+                            local pLower = string.lower(part.Name)
+                            local sa = saMap[pLower]
+
+                            -- Fuzzy matching
+                            if not sa then
+                                if saMap["none"] then
+                                    sa = saMap["none"]
+                                elseif #saList == 1 then
+                                    sa = saList[1]
+                                else
+                                    for saName, saObj in pairs(saMap) do
+                                        if saName ~= "none" and (string.find(pLower, saName, 1, true) or string.find(saName, pLower, 1, true)) then
+                                            sa = saObj
+                                            break
+                                        end
                                     end
-                                    part.Color = skinSource.Color
-                                    part.Material = skinSource.Material
                                 end
-                                local sa = skinSource:FindFirstChildOfClass("SurfaceAppearance") or (skinSource:IsA("SurfaceAppearance") and skinSource)
-                                if sa then
-                                    local old = part:FindFirstChildOfClass("SurfaceAppearance")
-                                    if old then old:Destroy() end
-                                    local newSA = sa:Clone()
-                                    newSA.Parent = part
+                            end
+
+                            if sa then
+                                local oldSA = part:FindFirstChildOfClass("SurfaceAppearance")
+                                if oldSA then oldSA:Destroy() end
+
+                                local newSA = sa:Clone()
+                                newSA.Parent = part
+
+                                if sa.ColorMap and sa.ColorMap ~= "" then
+                                    pcall(function()
+                                        part.TextureID = sa.ColorMap
+                                    end)
                                 end
                             end
                         end
@@ -13928,7 +14047,7 @@ function Library:CreateWindow(WindowInfo)
 
             function SkinChanger:Back()
                 if SkinChanger.RotateConnection then
-                    SkinChanger.RotateConnection:Disconnect()
+                    pcall(function() SkinChanger.RotateConnection:Disconnect() end)
                     SkinChanger.RotateConnection = nil
                 end
                 ShowcaseVP:ClearAllChildren()
@@ -13953,7 +14072,7 @@ function Library:CreateWindow(WindowInfo)
                 end
 
                 if SkinChanger.RotateConnection then
-                    SkinChanger.RotateConnection:Disconnect()
+                    pcall(function() SkinChanger.RotateConnection:Disconnect() end)
                     SkinChanger.RotateConnection = nil
                 end
 
@@ -13971,6 +14090,13 @@ function Library:CreateWindow(WindowInfo)
                                     break
                                 end
                             end
+                        end
+                        if not skinFolder then
+                            local RS = game:GetService("ReplicatedStorage")
+                            local assets = RS:FindFirstChild("Assets")
+                            local sF = assets and assets:FindFirstChild("Skins")
+                            local wF = sF and (sF:FindFirstChild(wData.Name) or sF:FindFirstChild(string.gsub(wData.Name, " ", "")))
+                            skinFolder = wF and wF:FindFirstChild(skinName)
                         end
                         if skinFolder then
                             ApplySkinTextures(targetModel, skinFolder)
@@ -14169,7 +14295,7 @@ function Library:CreateWindow(WindowInfo)
 
             function SkinChanger:Destroy()
                 if SkinChanger.RotateConnection then
-                    SkinChanger.RotateConnection:Disconnect()
+                    pcall(function() SkinChanger.RotateConnection:Disconnect() end)
                     SkinChanger.RotateConnection = nil
                 end
                 Root:Destroy()
