@@ -14709,6 +14709,11 @@ function Library:CreateWindow(WindowInfo)
                 return
             end
 
+            -- Cheap guard: if the menu was built into a container that later stopped
+            -- accepting writes, the tab stays permanently invisible even though its
+            -- contents exist. EnsureGuiCapability() re-hosts in that case.
+            EnsureGuiCapability()
+
             if Library.ActiveTab then
                 Library.ActiveTab:Hide()
             end
