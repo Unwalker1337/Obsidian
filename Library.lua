@@ -13319,7 +13319,7 @@ function Library:CreateWindow(WindowInfo)
                 return "Restricted", RarityColors["Restricted"]
             end
 
-            local function SetupViewport(vp, srcModel, rotateContinuously)
+            local function SetupViewport(vp, srcModel, rotateContinuously, weaponName)
                 if not vp or not srcModel then return nil, nil end
                 vp:ClearAllChildren()
 
@@ -13335,6 +13335,38 @@ function Library:CreateWindow(WindowInfo)
                 end)
                 if not ok or not clone then return nil, nil end
 
+                -- If the model contains a nested "Weapon" model, extract it directly
+                local subWeapon = clone:FindFirstChild("Weapon")
+                if subWeapon and subWeapon:IsA("Model") then
+                    subWeapon.Parent = nil
+                    clone:Destroy()
+                    clone = subWeapon
+                end
+
+                local isGlove = false
+                if weaponName and string.find(string.lower(weaponName), "glove") then
+                    isGlove = true
+                end
+
+                -- Destroy all non-weapon technical parts, roots, lights, camera rigs, and arms
+                for _, desc in ipairs(clone:GetDescendants()) do
+                    local lname = string.lower(desc.Name)
+                    if desc:IsA("BasePart") then
+                        local isRoot = (lname == "humanoidrootpart" or lname == "rootpart" or lname == "hitbox" or lname == "camera" or lname == "camerashake" or string.find(lname, "root") or string.find(lname, "muzzle"))
+                        local isArm = not isGlove and ((string.find(lname, "arm") and not string.find(lname, "charm")) or (string.find(lname, "hand") and not string.find(lname, "handle")) or string.find(lname, "sleeve"))
+                        local isLight = (lname == "viewmodellight" or string.find(lname, "light"))
+                        local isTransparent = desc.Transparency >= 0.95
+
+                        if isRoot or isArm or isLight or isTransparent then
+                            desc:Destroy()
+                        end
+                    elseif desc:IsA("Folder") or desc:IsA("Configuration") or desc:IsA("AnimationController") then
+                        if lname == "interactables" or lname == "camerashake" or lname == "stats" or lname == "properties" or lname == "dummyparts" then
+                            desc:Destroy()
+                        end
+                    end
+                end
+
                 local targetModel
                 if clone:IsA("Model") then
                     targetModel = clone
@@ -13343,41 +13375,47 @@ function Library:CreateWindow(WindowInfo)
                     clone.Parent = targetModel
                 end
 
+                -- Ensure there is at least one BasePart remaining
+                local hasParts = false
                 for _, desc in ipairs(targetModel:GetDescendants()) do
                     if desc:IsA("BasePart") then
-                        local lname = string.lower(desc.Name)
-                        if string.find(lname, "arm") or string.find(lname, "hand") or string.find(lname, "sleeve") then
-                            desc.Transparency = 1
-                        end
+                        hasParts = true
+                        break
                     end
+                end
+                if not hasParts then
+                    targetModel:Destroy()
+                    return nil, nil
                 end
 
                 targetModel.Parent = vp
 
                 local cf, size = targetModel:GetBoundingBox()
-                local maxDim = math.max(size.X, size.Y, size.Z, 0.5)
+                local maxDim = math.max(size.X, size.Y, size.Z, 0.4)
 
                 local cam = Instance.new("Camera")
-                cam.FieldOfView = 50
+                cam.FieldOfView = 36
                 local center = cf.Position
-                local baseOffset = Vector3.new(maxDim * 0.45, size.Y * 0.15, maxDim * 1.45)
-                cam.CFrame = CFrame.new(center + baseOffset, center)
+
+                -- Clean CS side profile: framed closely so the weapon fills the tile
+                local camOffset = (cf.RightVector * (maxDim * 1.05)) + (cf.UpVector * (maxDim * 0.22)) - (cf.LookVector * (maxDim * 0.22))
+                cam.CFrame = CFrame.new(center + camOffset, center)
                 cam.Parent = vp
                 vp.CurrentCamera = cam
 
-                vp.Ambient = Color3.fromRGB(180, 180, 180)
+                vp.Ambient = Color3.fromRGB(190, 190, 190)
                 vp.LightColor = Color3.fromRGB(255, 255, 255)
-                vp.LightDirection = Vector3.new(-1, -1, -1)
+                vp.LightDirection = Vector3.new(-1, -1.2, -1)
 
                 local conn = nil
                 if rotateContinuously then
                     local angle = 0
                     conn = RunService.RenderStepped:Connect(function(dt)
                         if not vp.Parent or not vp.Visible or not TabContainer.Visible then return end
-                        angle = (angle + dt * 45) % 360
-                        local rotCF = CFrame.Angles(0, math.rad(angle), 0)
-                        local rotOffset = (rotCF * CFrame.new(baseOffset)).Position
-                        cam.CFrame = CFrame.new(center + rotOffset, center)
+                        angle = (angle + dt * 42) % 360
+                        local rad = math.rad(angle)
+                        local orbitOffset = (cf.RightVector * math.cos(rad) + cf.LookVector * math.sin(rad)) * (maxDim * 1.15) + (cf.UpVector * (maxDim * 0.25))
+                        cam.CFrame = CFrame.new(center + orbitOffset, center)
                     end)
                 end
 
@@ -13483,7 +13521,8 @@ function Library:CreateWindow(WindowInfo)
                                 end
                                 if weaponsFolder and weaponsFolder:FindFirstChild(wName) then
                                     local w = weaponsFolder[wName]
-                                    return w:FindFirstChild("Camera") or w:FindFirstChild("World") or w
+                                    local cam = w:FindFirstChild("Camera") or w:FindFirstChild("World") or w:FindFirstChild("Character") or w
+                                    return (cam and cam:FindFirstChild("Weapon")) or cam
                                 end
                                 return nil
                             end
@@ -13672,7 +13711,7 @@ function Library:CreateWindow(WindowInfo)
 
                 local model = wData.GetModel and wData.GetModel()
                 if model then
-                    SetupViewport(VP, model, false)
+                    SetupViewport(VP, model, false, wData.Name)
                 else
                     New("TextLabel", {
                         BackgroundTransparency = 1,
@@ -13920,7 +13959,7 @@ function Library:CreateWindow(WindowInfo)
 
                 local baseModel = wData.GetModel and wData.GetModel()
                 if baseModel then
-                    local conn, targetModel = SetupViewport(ShowcaseVP, baseModel, true)
+                    local conn, targetModel = SetupViewport(ShowcaseVP, baseModel, true, wData.Name)
                     SkinChanger.RotateConnection = conn
 
                     if skinName ~= "Default" and targetModel then
