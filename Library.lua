@@ -12038,7 +12038,9 @@ function Library:CreateWindow(WindowInfo)
         end
 
         --// Header gear button -> theme / font popup \\--
-        -- Sits next to the config pill. Wire it from the game script with
+        -- Opt-in: the button stays hidden until a game script calls
+        -- Library:SetSettingsHandler(...). Menus that host their own settings tab leave it
+        -- alone. Wire it with:
         --   Library:SetSettingsHandler({
         --       GetThemes     = function() return { "Default", ... } end,
         --       GetActiveTheme= function() return "Default" end,
@@ -12054,6 +12056,7 @@ function Library:CreateWindow(WindowInfo)
             end,
             Size = UDim2.fromOffset(22, 22),
             Text = "",
+            Visible = false,
             LayoutOrder = 4,
             Parent = TitleHolder,
         })
@@ -12247,6 +12250,8 @@ function Library:CreateWindow(WindowInfo)
 
         function Library:SetSettingsHandler(Handler: { [string]: any })
             Library.SettingsHandler = Handler
+            -- The gear button is opt-in: passing nil hides it again.
+            GearButton.Visible = Handler ~= nil
         end
 
         RefreshWindowTitleSize = function()
