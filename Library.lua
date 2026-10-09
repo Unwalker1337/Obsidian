@@ -11700,6 +11700,32 @@ function Library:CreateWindow(WindowInfo)
             Parent = TitleHolder,
         })
 
+        --// Optional logo instead of the title text \--
+        -- WindowInfo.TitleImage takes an image id (rbxassetid://, rbxasset:// from
+        -- getcustomasset, ...) and WindowInfo.TitleImageAspect its width/height ratio.
+        -- The logo is sized by the header height and the aspect constraint derives the
+        -- width, so it scales with the window without distortion.
+        if typeof(WindowInfo.TitleImage) == "string" and WindowInfo.TitleImage ~= "" then
+            Library.HasTitleImage = true
+            WindowTitle.Visible = false
+
+            local TitleLogo = New("ImageLabel", {
+                BackgroundTransparency = 1,
+                Size = UDim2.new(0, 0, 1, -14),
+                Image = WindowInfo.TitleImage,
+                ScaleType = Enum.ScaleType.Fit,
+                LayoutOrder = 1,
+                Parent = TitleHolder,
+            })
+
+            New("UIAspectRatioConstraint", {
+                AspectRatio = tonumber(WindowInfo.TitleImageAspect) or 4,
+                AspectType = Enum.AspectType.FitWithinMaxSize,
+                DominantAxis = Enum.DominantAxis.Height,
+                Parent = TitleLogo,
+            })
+        end
+
         -- Shitaro header small icon button (copy / layers / code)
         local HeaderIconBtn = New("TextButton", {
             AutoButtonColor = false,
@@ -12606,7 +12632,7 @@ function Library:CreateWindow(WindowInfo)
             IsCompact = Window:GetSidebarWidth() <= WindowInfo.CompactWidthActivation
         end
 
-        WindowTitle.Visible = not IsCompact
+        WindowTitle.Visible = (not IsCompact) and not Library.HasTitleImage
         if not WindowInfo.Icon then
             WindowIcon.Visible = IsCompact
         end
