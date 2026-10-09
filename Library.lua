@@ -20,6 +20,75 @@ local gethui = gethui or function()
     return CoreGui
 end
 
+--// Thread capability helpers \\--
+-- Roblox gates `Instance.new`, the datatype globals and writes to GuiObjects that
+-- live inside a protected (CoreGui / gethui) tree on the *capability set of the
+-- calling thread*. Some executors, and sandboxed contexts such as the Actor VMs
+-- some games run, hand a thread a capability set that is missing `Plugin`; in that
+-- state even `Instance.new` raises
+--     "The current thread cannot access 'Instance' (lacking capability Plugin)"
+-- and the UI aborts mid-build. Restoring the thread identity to plugin level (8)
+-- re-grants the missing capabilities. All steps are optional and pcall'd, so this
+-- is a harmless no-op on executors that do not expose the identity API.
+local PLUGIN_IDENTITY = 8
+
+local _getThreadIdentity = getthreadidentity or get_thread_identity or getidentity
+    or (syn and syn.get_thread_identity)
+local _setThreadIdentity = setthreadidentity or set_thread_identity or setidentity
+    or (syn and syn.set_thread_identity)
+
+local function restoreThreadCapability()
+    if not _setThreadIdentity then
+        return false
+    end
+
+    if _getThreadIdentity then
+        local ok, identity = pcall(_getThreadIdentity)
+        if ok and type(identity) == "number" and identity >= PLUGIN_IDENTITY then
+            return true
+        end
+    end
+
+    return (pcall(_setThreadIdentity, PLUGIN_IDENTITY))
+end
+
+restoreThreadCapability()
+
+-- `Instance.new` with a capability retry: a single failed construction used to
+-- abort an entire grid/groupbox build instead of skipping the offending element.
+local function SafeInstanceNew(ClassName: string): any
+    local ok, result = pcall(Instance.new, ClassName)
+    if ok then
+        return result
+    end
+
+    restoreThreadCapability()
+
+    local ok2, result2 = pcall(Instance.new, ClassName)
+    if ok2 then
+        return result2
+    end
+
+    error(result2, 2)
+end
+
+-- Runs `fn` with a capability retry. Engine-signal callbacks (RenderStepped /
+-- Heartbeat / MouseButton1Click / InputChanged) run on threads that do not always
+-- carry the script's identity, so GUI writes performed directly inside them throw
+-- "lacking capability Plugin" on some executors. Re-asserting the identity and
+-- retrying recovers instead of aborting the whole callback.
+local function CapabilitySafe(fn: (...any) -> ...any, ...): (boolean, ...any)
+    local args = table.pack(...)
+
+    local ok, a, b, c, d = pcall(fn, table.unpack(args, 1, args.n))
+    if ok then
+        return ok, a, b, c, d
+    end
+
+    restoreThreadCapability()
+    return pcall(fn, table.unpack(args, 1, args.n))
+end
+
 local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
 local Mouse = cloneref(LocalPlayer:GetMouse())
 
@@ -1638,7 +1707,7 @@ local function FillInstance(Table: { [string]: any }, Instance: GuiObject)
 end
 
 local function New(ClassName: string, Properties: { [string]: any }): any
-    local Instance = Instance.new(ClassName)
+    local Instance = SafeInstanceNew(ClassName)
 
     if Templates[ClassName] then
         FillInstance(Templates[ClassName], Instance)
@@ -13254,7 +13323,7 @@ function Library:CreateWindow(WindowInfo)
                 if clone:IsA("Model") then
                     targetModel = clone
                 else
-                    targetModel = Instance.new("Model")
+                    targetModel = SafeInstanceNew("Model")
                     clone.Parent = targetModel
                 end
 
@@ -13269,7 +13338,7 @@ function Library:CreateWindow(WindowInfo)
 
                 targetModel.Parent = vp
 
-                local cam = Instance.new("Camera")
+                local cam = SafeInstanceNew("Camera")
                 local cf, size
                 local maxDim = 0.5
                 local center = Vector3.new()
@@ -13988,6 +14057,10 @@ function Library:CreateWindow(WindowInfo)
                 local isKnifeItem = string.find(string.lower(knifeName), "knife") ~= nil or string.find(string.lower(knifeName), "karambit") ~= nil or string.find(string.lower(knifeName), "bayonet") ~= nil
 
                 for idx, sData in ipairs(skins) do
+                    -- Build each tile defensively: a capability error on one skin must
+                    -- skip that tile instead of aborting the whole grid -- and, with it,
+                    -- the rest of the caller's script (AddSkinChanger runs at load time).
+                    local tileOk = pcall(function()
                     local isEq = (string.lower(eqSkin) == string.lower(sData.Name))
                     local tile = New("TextButton", {
                         Name = "Skin_" .. sData.Name,
@@ -14036,16 +14109,25 @@ function Library:CreateWindow(WindowInfo)
 
                     tile.MouseButton1Click:Connect(function()
                         SkinChanger.EquippedSkins[knifeName] = sData.Name
-                        for sName, card in pairs(KnifeCards) do
-                            local sel = (sName == sData.Name)
-                            card.Tile.BackgroundColor3 = sel and Color3.fromRGB(34, 30, 50) or Color3.fromRGB(24, 24, 28)
-                            card.Stroke.Color = sel and Color3.fromRGB(123, 97, 255) or Color3.fromRGB(36, 36, 42)
-                            card.Stroke.Thickness = sel and 1.5 or 1
-                            card.Label.TextColor3 = sel and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(150, 150, 164)
-                        end
+                        -- GUI writes inside an engine-signal callback need the capability
+                        -- re-asserted on some executors (see CapabilitySafe).
+                        CapabilitySafe(function()
+                            for sName, card in pairs(KnifeCards) do
+                                local sel = (sName == sData.Name)
+                                card.Tile.BackgroundColor3 = sel and Color3.fromRGB(34, 30, 50) or Color3.fromRGB(24, 24, 28)
+                                card.Stroke.Color = sel and Color3.fromRGB(123, 97, 255) or Color3.fromRGB(36, 36, 42)
+                                card.Stroke.Thickness = sel and 1.5 or 1
+                                card.Label.TextColor3 = sel and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(150, 150, 164)
+                            end
+                        end)
                         if OnSkinSelected then
-                            OnSkinSelected(knifeName, sData.Name, sData.Folder, { Name = knifeName, Skin = sData.Name })
+                            pcall(OnSkinSelected, knifeName, sData.Name, sData.Folder, { Name = knifeName, Skin = sData.Name })
                         end
+                    end)
+
+                    if not tileOk then
+                        warn("[Library] SkinChanger: skipped knife tile '" .. tostring(sData and sData.Name) .. "'")
+                    end
                     end)
                 end
             end
@@ -14072,6 +14154,9 @@ function Library:CreateWindow(WindowInfo)
                 local eqSkin = SkinChanger.EquippedGloves[gloveName] or "Stock"
 
                 for idx, sData in ipairs(skins) do
+                    -- Same defensive build as the knives grid: one failing glove skin
+                    -- must not abort the grid (or the caller's script).
+                    local tileOk = pcall(function()
                     local isEq = (string.lower(eqSkin) == string.lower(sData.Name))
                     local tile = New("TextButton", {
                         Name = "Skin_" .. sData.Name,
@@ -14120,16 +14205,23 @@ function Library:CreateWindow(WindowInfo)
 
                     tile.MouseButton1Click:Connect(function()
                         SkinChanger.EquippedGloves[gloveName] = sData.Name
-                        for sName, card in pairs(GloveCards) do
-                            local sel = (sName == sData.Name)
-                            card.Tile.BackgroundColor3 = sel and Color3.fromRGB(34, 30, 50) or Color3.fromRGB(24, 24, 28)
-                            card.Stroke.Color = sel and Color3.fromRGB(123, 97, 255) or Color3.fromRGB(36, 36, 42)
-                            card.Stroke.Thickness = sel and 1.5 or 1
-                            card.Label.TextColor3 = sel and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(150, 150, 164)
-                        end
+                        CapabilitySafe(function()
+                            for sName, card in pairs(GloveCards) do
+                                local sel = (sName == sData.Name)
+                                card.Tile.BackgroundColor3 = sel and Color3.fromRGB(34, 30, 50) or Color3.fromRGB(24, 24, 28)
+                                card.Stroke.Color = sel and Color3.fromRGB(123, 97, 255) or Color3.fromRGB(36, 36, 42)
+                                card.Stroke.Thickness = sel and 1.5 or 1
+                                card.Label.TextColor3 = sel and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(150, 150, 164)
+                            end
+                        end)
                         if OnGloveSkinSelected then
-                            OnGloveSkinSelected(gloveName, sData.Name, sData.Folder, { Name = gloveName, Skin = sData.Name })
+                            pcall(OnGloveSkinSelected, gloveName, sData.Name, sData.Folder, { Name = gloveName, Skin = sData.Name })
                         end
+                    end)
+
+                    if not tileOk then
+                        warn("[Library] SkinChanger: skipped glove tile '" .. tostring(sData and sData.Name) .. "'")
+                    end
                     end)
                 end
             end
@@ -14143,7 +14235,7 @@ function Library:CreateWindow(WindowInfo)
                     local isK = string.find(string.lower(selected), "knife") ~= nil or string.find(string.lower(selected), "karambit") ~= nil or string.find(string.lower(selected), "bayonet") ~= nil
                     KnivesHeader.Text = isK and "knives" or string.lower(selected)
                     ClearControllers()
-                    PopulateKnivesGrid(selected)
+                    CapabilitySafe(PopulateKnivesGrid, selected)
                 end)
             end)
 
@@ -14154,13 +14246,14 @@ function Library:CreateWindow(WindowInfo)
                     SkinChanger.ActiveGlove = selected
                     GlovesModelBtnLabel.Text = string.lower(selected)
                     ClearControllers()
-                    PopulateGlovesGrid(selected)
+                    CapabilitySafe(PopulateGlovesGrid, selected)
                 end)
             end)
 
-            -- Initial Population
-            PopulateKnivesGrid(SkinChanger.ActiveKnife)
-            PopulateGlovesGrid(SkinChanger.ActiveGlove)
+            -- Initial Population (contained: a failing grid must not abort AddSkinChanger,
+            -- which would leave this tab's columns hidden and kill the caller's script).
+            pcall(PopulateKnivesGrid, SkinChanger.ActiveKnife)
+            pcall(PopulateGlovesGrid, SkinChanger.ActiveGlove)
 
             function SkinChanger:Destroy()
                 ClearControllers()
