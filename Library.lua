@@ -11703,27 +11703,37 @@ function Library:CreateWindow(WindowInfo)
         --// Optional logo instead of the title text \--
         -- WindowInfo.TitleImage takes an image id (rbxassetid://, rbxasset:// from
         -- getcustomasset, ...) and WindowInfo.TitleImageAspect its width/height ratio.
-        -- The logo is sized by the header height and the aspect constraint derives the
-        -- width, so it scales with the window without distortion.
+        -- The width is computed from the ratio rather than left to a
+        -- UIAspectRatioConstraint: inside this UIListLayout the constraint left the label
+        -- at zero width, so the header showed nothing at all.
         if typeof(WindowInfo.TitleImage) == "string" and WindowInfo.TitleImage ~= "" then
             Library.HasTitleImage = true
             WindowTitle.Visible = false
 
+            local LogoHeight = 24 -- header row is 38 tall; leaves a little breathing room
+            local Aspect = tonumber(WindowInfo.TitleImageAspect) or 4
+
             local TitleLogo = New("ImageLabel", {
                 BackgroundTransparency = 1,
-                Size = UDim2.new(0, 0, 1, -14),
+                Size = UDim2.new(0, math.floor(LogoHeight * Aspect), 1, -14),
                 Image = WindowInfo.TitleImage,
                 ScaleType = Enum.ScaleType.Fit,
                 LayoutOrder = 1,
                 Parent = TitleHolder,
             })
 
-            New("UIAspectRatioConstraint", {
-                AspectRatio = tonumber(WindowInfo.TitleImageAspect) or 4,
-                AspectType = Enum.AspectType.FitWithinMaxSize,
-                DominantAxis = Enum.DominantAxis.Height,
-                Parent = TitleLogo,
-            })
+            -- If the image never loads (unresolvable path, executor without custom asset
+            -- support), put the title text back instead of leaving the header empty.
+            task.defer(function()
+                task.wait(1)
+
+                if not TitleLogo.IsLoaded then
+                    Library.HasTitleImage = false
+                    TitleLogo.Visible = false
+                    WindowTitle.Visible = true
+                    warn("[Obsidian] Title image did not load; falling back to the title text.")
+                end
+            end)
         end
 
         -- Shitaro header small icon button (copy / layers / code)
