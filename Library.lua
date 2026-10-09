@@ -14668,6 +14668,11 @@ function Library:CreateWindow(WindowInfo)
                 if OnWearChanged then
                     OnWearChanged(wearVal, GetWearFolderName(wearVal))
                 end
+                -- Re-texture the 3D preview tiles so they visibly match the new wear.
+                -- Defined later (with the grids); nil until the first populated grid.
+                if SkinChanger.RefreshPreviewWear then
+                    pcall(SkinChanger.RefreshPreviewWear, wearVal)
+                end
             end
 
             local WearSliderButton = New("TextButton", {
@@ -14864,6 +14869,29 @@ function Library:CreateWindow(WindowInfo)
                 pcall(ApplyCardSelection, GloveCards, SkinChanger.EquippedGloves[SkinChanger.ActiveGlove])
             end)
 
+            -- Re-texture every preview tile to the given wear percentage. The tiles are
+            -- otherwise only textured once, when the grid is (re)built, so dragging the
+            -- wear slider left the 3D previews showing the old wear. Each card records
+            -- the cloned model + its skin folder so we can re-apply on demand.
+            local function RefreshPreviewWear(wearPct)
+                pcall(function()
+                    for _, card in pairs(KnifeCards) do
+                        if card.Model and card.Folder then
+                            ApplySkinTextures(card.Model, card.Folder, wearPct)
+                        end
+                    end
+                    for _, card in pairs(GloveCards) do
+                        if card.Model and card.Folder then
+                            ApplySkinTextures(card.Model, card.Folder, wearPct)
+                        end
+                    end
+                end)
+            end
+
+            -- Expose it on the SkinChanger object so the wear slider (defined before the
+            -- grids) can call it.
+            SkinChanger.RefreshPreviewWear = RefreshPreviewWear
+
             local function PopulateKnivesGrid(selection)
                 -- The model list only carries the "knife" category; the concrete knife comes
                 -- from the type selector. Everything below keeps working with a real name,
@@ -14921,9 +14949,11 @@ function Library:CreateWindow(WindowInfo)
                         Parent = tile,
                     })
 
+                    local tileModel
                     if baseModel then
                         local ctrl, tModel = SetupViewport(vp, baseModel, isKnifeItem, false)
                         if ctrl then table.insert(SkinChanger.ActiveControllers, ctrl) end
+                        tileModel = tModel
                         if tModel and sData.Folder then
                             ApplySkinTextures(tModel, sData.Folder, SkinChanger.CurrentWear)
                         end
@@ -14941,7 +14971,7 @@ function Library:CreateWindow(WindowInfo)
                         Parent = tile,
                     })
 
-                    KnifeCards[sData.Name] = { Tile = tile, Stroke = tileStroke, Label = skinLabel }
+                    KnifeCards[sData.Name] = { Tile = tile, Stroke = tileStroke, Label = skinLabel, Model = tileModel, Folder = sData.Folder }
 
                     tile.MouseButton1Click:Connect(function()
                         SkinChanger.EquippedSkins[knifeName] = sData.Name
@@ -15012,9 +15042,11 @@ function Library:CreateWindow(WindowInfo)
                         Parent = tile,
                     })
 
+                    local tileModel
                     if baseModel then
                         local ctrl, tModel = SetupViewport(vp, baseModel, false, true)
                         if ctrl then table.insert(SkinChanger.ActiveControllers, ctrl) end
+                        tileModel = tModel
                         if tModel and sData.Folder then
                             ApplySkinTextures(tModel, sData.Folder, SkinChanger.CurrentWear)
                         end
@@ -15032,7 +15064,7 @@ function Library:CreateWindow(WindowInfo)
                         Parent = tile,
                     })
 
-                    GloveCards[sData.Name] = { Tile = tile, Stroke = tileStroke, Label = skinLabel }
+                    GloveCards[sData.Name] = { Tile = tile, Stroke = tileStroke, Label = skinLabel, Model = tileModel, Folder = sData.Folder }
 
                     tile.MouseButton1Click:Connect(function()
                         SkinChanger.EquippedGloves[gloveName] = sData.Name
