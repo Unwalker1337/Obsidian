@@ -13263,6 +13263,8 @@ function Library:CreateWindow(WindowInfo)
             TabLeft.Visible = false
             TabRight.Visible = false
 
+            local MutedColor = Color3.fromRGB(160, 160, 160)
+
             local SkinChanger = {
                 Tab = Tab,
                 ActiveWeapon = nil,
@@ -13549,9 +13551,7 @@ function Library:CreateWindow(WindowInfo)
                 PlaceholderText = "Search weapon...",
                 Text = "",
                 TextColor3 = "FontColor",
-                PlaceholderColor3 = "SubTextColor",
                 TextSize = 13,
-                Font = Library.Scheme.Font,
                 TextXAlignment = Enum.TextXAlignment.Left,
                 ClearTextOnFocus = false,
                 Parent = SearchBoxHolder,
@@ -13628,7 +13628,6 @@ function Library:CreateWindow(WindowInfo)
                     Text = catName,
                     TextColor3 = (catName == SkinChanger.ActiveCategory and "AccentColor" or "FontColor"),
                     TextSize = 12,
-                    Font = Library.Scheme.Font,
                     LayoutOrder = idx,
                     Parent = CategoryScroll,
                 })
@@ -13679,9 +13678,8 @@ function Library:CreateWindow(WindowInfo)
                         BackgroundTransparency = 1,
                         Size = UDim2.fromScale(1, 1),
                         Text = "3D",
-                        TextColor3 = "SubTextColor",
+                        TextColor3 = MutedColor,
                         TextSize = 20,
-                        Font = Library.Scheme.Font,
                         Parent = VP,
                     })
                 end
@@ -13693,7 +13691,6 @@ function Library:CreateWindow(WindowInfo)
                     Text = wData.Name,
                     TextColor3 = "FontColor",
                     TextSize = 13,
-                    Font = Library.Scheme.Font,
                     TextXAlignment = Enum.TextXAlignment.Left,
                     TextTruncate = Enum.TextTruncate.AtEnd,
                     Parent = Card,
@@ -13705,9 +13702,8 @@ function Library:CreateWindow(WindowInfo)
                     Position = UDim2.fromOffset(8, 116),
                     Size = UDim2.new(1, -16, 0, 16),
                     Text = currentSkin,
-                    TextColor3 = (currentSkin == "Default" and "SubTextColor" or "AccentColor"),
+                    TextColor3 = (currentSkin == "Default" and MutedColor or "AccentColor"),
                     TextSize = 11,
-                    Font = Library.Scheme.Font,
                     TextXAlignment = Enum.TextXAlignment.Left,
                     TextTruncate = Enum.TextTruncate.AtEnd,
                     Parent = Card,
@@ -13754,7 +13750,6 @@ function Library:CreateWindow(WindowInfo)
                 Text = "<- Back",
                 TextColor3 = "FontColor",
                 TextSize = 13,
-                Font = Library.Scheme.Font,
                 Parent = SubTopBar,
             })
             New("UICorner", { CornerRadius = UDim.new(0, 4), Parent = BackButton })
@@ -13777,7 +13772,6 @@ function Library:CreateWindow(WindowInfo)
                 Text = "Weapon Skins",
                 TextColor3 = "FontColor",
                 TextSize = 14,
-                Font = Library.Scheme.Font,
                 TextXAlignment = Enum.TextXAlignment.Left,
                 Parent = SubTopBar,
             })
@@ -13813,7 +13807,6 @@ function Library:CreateWindow(WindowInfo)
                 Text = "Skin Name",
                 TextColor3 = "FontColor",
                 TextSize = 15,
-                Font = Library.Scheme.Font,
                 TextXAlignment = Enum.TextXAlignment.Center,
                 TextTruncate = Enum.TextTruncate.AtEnd,
                 Parent = ShowcasePanel,
@@ -13827,7 +13820,6 @@ function Library:CreateWindow(WindowInfo)
                 Text = "Covert",
                 TextColor3 = RarityColors.Covert,
                 TextSize = 11,
-                Font = Library.Scheme.Font,
                 Parent = ShowcasePanel,
             })
             New("UICorner", { CornerRadius = UDim.new(0, 3), Parent = ShowcaseRarityBadge })
@@ -13841,7 +13833,6 @@ function Library:CreateWindow(WindowInfo)
                 Text = "Equip Skin",
                 TextColor3 = Color3.fromRGB(255, 255, 255),
                 TextSize = 13,
-                Font = Library.Scheme.Font,
                 Parent = ShowcasePanel,
             })
             New("UICorner", { CornerRadius = UDim.new(0, 4), Parent = EquipButton })
@@ -13873,9 +13864,7 @@ function Library:CreateWindow(WindowInfo)
                 PlaceholderText = "Search skin...",
                 Text = "",
                 TextColor3 = "FontColor",
-                PlaceholderColor3 = "SubTextColor",
                 TextSize = 12,
-                Font = Library.Scheme.Font,
                 TextXAlignment = Enum.TextXAlignment.Left,
                 ClearTextOnFocus = false,
                 Parent = SkinSearchHolder,
@@ -13957,7 +13946,7 @@ function Library:CreateWindow(WindowInfo)
                 local cardInfo = SkinChanger.Cards[weaponName]
                 if cardInfo and cardInfo.SkinBadge then
                     cardInfo.SkinBadge.Text = skinName
-                    cardInfo.SkinBadge.TextColor3 = (skinName == "Default" and Library.Scheme.SubTextColor or Library.Scheme.AccentColor)
+                    cardInfo.SkinBadge.TextColor3 = (skinName == "Default" and MutedColor or Library.Scheme.AccentColor)
                 end
 
                 if SkinChanger.ActiveWeapon and SkinChanger.ActiveWeapon.Name == weaponName then
@@ -14003,7 +13992,7 @@ function Library:CreateWindow(WindowInfo)
                         if statusLbl then
                             local isEq = (sName == currentEq)
                             statusLbl.Text = isEq and "[Equipped]" or "Select"
-                            statusLbl.TextColor3 = isEq and Color3.fromRGB(46, 204, 113) or Library.Scheme.SubTextColor
+                            statusLbl.TextColor3 = isEq and Color3.fromRGB(46, 204, 113) or MutedColor
                         end
                     end
                 end
@@ -14053,7 +14042,6 @@ function Library:CreateWindow(WindowInfo)
                             Text = s.Name,
                             TextColor3 = "FontColor",
                             TextSize = 13,
-                            Font = Library.Scheme.Font,
                             TextXAlignment = Enum.TextXAlignment.Left,
                             TextTruncate = Enum.TextTruncate.AtEnd,
                             Parent = Item,
@@ -14065,9 +14053,8 @@ function Library:CreateWindow(WindowInfo)
                             Position = UDim2.new(0.65, 0, 0, 0),
                             Size = UDim2.new(0.35, -8, 1, 0),
                             Text = isEq and "[Equipped]" or "Select",
-                            TextColor3 = isEq and Color3.fromRGB(46, 204, 113) or "SubTextColor",
+                            TextColor3 = isEq and Color3.fromRGB(46, 204, 113) or MutedColor,
                             TextSize = 12,
-                            Font = Library.Scheme.Font,
                             TextXAlignment = Enum.TextXAlignment.Right,
                             Parent = Item,
                         })
