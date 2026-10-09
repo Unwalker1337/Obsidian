@@ -13255,6 +13255,907 @@ function Library:CreateWindow(WindowInfo)
             return Tab:AddGroupbox({ Side = 2, Name = Name, IconName = IconName, Visible = Visible, Collapsed = Collapsed, DisableCollapsing = DisableCollapsing })
         end
 
+        --// 3D Viewport Skin Changer Component \\--
+        function Tab:AddSkinChanger(Info)
+            Info = Info or {}
+
+            -- Hide default side columns in this Tab
+            TabLeft.Visible = false
+            TabRight.Visible = false
+
+            local SkinChanger = {
+                Tab = Tab,
+                ActiveWeapon = nil,
+                SelectedSkin = nil,
+                EquippedSkins = Info.EquippedSkins or {},
+                Weapons = {},
+                ActiveCategory = "All",
+                Cards = {},
+                RotateConnection = nil,
+                Destroyed = false,
+            }
+
+            local OnSkinSelected = Info.OnSkinSelected or function(weaponName, skinName, skinFolder, weaponData) end
+            local CustomGetWeaponModel = Info.GetWeaponModel
+            local CustomApplySkin = Info.ApplySkin
+
+            if not CustomApplySkin and type(getgc) == "function" then
+                pcall(function()
+                    for _, fn in next, getgc() do
+                        if type(fn) == "function" and debug.getinfo and debug.getinfo(fn).name == "ApplySkinTextures" then
+                            CustomApplySkin = fn
+                            break
+                        end
+                    end
+                end)
+            end
+
+            local RarityColors = {
+                ["Covert"]     = Color3.fromRGB(235, 75, 75),
+                ["Classified"] = Color3.fromRGB(211, 44, 230),
+                ["Restricted"] = Color3.fromRGB(136, 71, 255),
+                ["Mil-Spec"]   = Color3.fromRGB(75, 105, 255),
+                ["Industrial"] = Color3.fromRGB(94, 152, 217),
+                ["Consumer"]   = Color3.fromRGB(176, 195, 217),
+                ["Default"]    = Color3.fromRGB(160, 160, 160),
+            }
+
+            local function DetermineRarity(name)
+                local s = string.lower(name or "")
+                if s == "default" or s == "stock" or s == "vanilla" then
+                    return "Default", RarityColors["Default"]
+                end
+                if string.find(s, "asiimov") or string.find(s, "howl") or string.find(s, "dragon") or string.find(s, "fire serpent") or string.find(s, "fade") or string.find(s, "doppler") or string.find(s, "lore") or string.find(s, "autotronic") or string.find(s, "hyper beast") or string.find(s, "printstream") or string.find(s, "kill confirmed") or string.find(s, "vulcan") then
+                    return "Covert", RarityColors["Covert"]
+                elseif string.find(s, "neon") or string.find(s, "bloodsport") or string.find(s, "cyrex") or string.find(s, "frontside") or string.find(s, "desolate") or string.find(s, "decimation") or string.find(s, "water elemental") or string.find(s, "golden koi") then
+                    return "Classified", RarityColors["Classified"]
+                elseif string.find(s, "redline") or string.find(s, "guardian") or string.find(s, "elite build") or string.find(s, "cortex") or string.find(s, "atomic") or string.find(s, "fever dream") or string.find(s, "mortis") or string.find(s, "phantom") then
+                    return "Restricted", RarityColors["Restricted"]
+                elseif string.find(s, "blue") or string.find(s, "oxide") or string.find(s, "night") or string.find(s, "safari") or string.find(s, "sand") or string.find(s, "urban") then
+                    return "Mil-Spec", RarityColors["Mil-Spec"]
+                end
+                return "Restricted", RarityColors["Restricted"]
+            end
+
+            local function SetupViewport(vp, srcModel, rotateContinuously)
+                if not vp or not srcModel then return nil, nil end
+                vp:ClearAllChildren()
+
+                local clone
+                local ok = pcall(function()
+                    if srcModel.Archivable then
+                        clone = srcModel:Clone()
+                    else
+                        srcModel.Archivable = true
+                        clone = srcModel:Clone()
+                        srcModel.Archivable = false
+                    end
+                end)
+                if not ok or not clone then return nil, nil end
+
+                local targetModel
+                if clone:IsA("Model") then
+                    targetModel = clone
+                else
+                    targetModel = Instance.new("Model")
+                    clone.Parent = targetModel
+                end
+
+                for _, desc in ipairs(targetModel:GetDescendants()) do
+                    if desc:IsA("BasePart") then
+                        local lname = string.lower(desc.Name)
+                        if string.find(lname, "arm") or string.find(lname, "hand") or string.find(lname, "sleeve") then
+                            desc.Transparency = 1
+                        end
+                    end
+                end
+
+                targetModel.Parent = vp
+
+                local cf, size = targetModel:GetBoundingBox()
+                local maxDim = math.max(size.X, size.Y, size.Z, 0.5)
+
+                local cam = Instance.new("Camera")
+                cam.FieldOfView = 50
+                local center = cf.Position
+                local baseOffset = Vector3.new(maxDim * 0.45, size.Y * 0.15, maxDim * 1.45)
+                cam.CFrame = CFrame.new(center + baseOffset, center)
+                cam.Parent = vp
+                vp.CurrentCamera = cam
+
+                vp.Ambient = Color3.fromRGB(180, 180, 180)
+                vp.LightColor = Color3.fromRGB(255, 255, 255)
+                vp.LightDirection = Vector3.new(-1, -1, -1)
+
+                local conn = nil
+                if rotateContinuously then
+                    local angle = 0
+                    conn = RunService.RenderStepped:Connect(function(dt)
+                        if not vp.Parent or not vp.Visible or not TabContainer.Visible then return end
+                        angle = (angle + dt * 45) % 360
+                        local rotCF = CFrame.Angles(0, math.rad(angle), 0)
+                        local rotOffset = (rotCF * CFrame.new(baseOffset)).Position
+                        cam.CFrame = CFrame.new(center + rotOffset, center)
+                    end)
+                end
+
+                return conn, targetModel
+            end
+
+            local function ApplySkinTextures(targetModel, skinFolder)
+                if not targetModel or not skinFolder then return end
+
+                if CustomApplySkin then
+                    local ok = pcall(function()
+                        local source = skinFolder:FindFirstChild("Camera")
+                        local fn = source and source:FindFirstChild("Factory New")
+                        CustomApplySkin(targetModel, fn or source or skinFolder)
+                    end)
+                    if ok then return end
+                end
+
+                pcall(function()
+                    local skinParts = {}
+                    for _, desc in ipairs(skinFolder:GetDescendants()) do
+                        if desc:IsA("BasePart") or desc:IsA("SurfaceAppearance") or desc:IsA("Texture") or desc:IsA("Decal") then
+                            skinParts[desc.Name] = desc
+                        end
+                    end
+
+                    for _, part in ipairs(targetModel:GetDescendants()) do
+                        if part:IsA("MeshPart") then
+                            local skinSource = skinParts[part.Name]
+                            if skinSource then
+                                if skinSource:IsA("MeshPart") then
+                                    if skinSource.TextureID ~= "" then
+                                        part.TextureID = skinSource.TextureID
+                                    end
+                                    part.Color = skinSource.Color
+                                    part.Material = skinSource.Material
+                                end
+                                local sa = skinSource:FindFirstChildOfClass("SurfaceAppearance") or (skinSource:IsA("SurfaceAppearance") and skinSource)
+                                if sa then
+                                    local old = part:FindFirstChildOfClass("SurfaceAppearance")
+                                    if old then old:Destroy() end
+                                    local newSA = sa:Clone()
+                                    newSA.Parent = part
+                                end
+                            end
+                        end
+                    end
+                end)
+            end
+
+            local function FetchGameWeapons()
+                local discovered = {}
+                local RS = game:GetService("ReplicatedStorage")
+                local assets = RS:FindFirstChild("Assets")
+                local skinsFolder = assets and assets:FindFirstChild("Skins")
+                local weaponsFolder = assets and assets:FindFirstChild("Weapons")
+
+                if skinsFolder then
+                    for _, weaponFolder in ipairs(skinsFolder:GetChildren()) do
+                        local wName = weaponFolder.Name
+                        local skinsList = {}
+
+                        table.insert(skinsList, {
+                            Name = "Default",
+                            Rarity = "Default",
+                            Folder = nil
+                        })
+
+                        for _, skinItem in ipairs(weaponFolder:GetChildren()) do
+                            local rName = DetermineRarity(skinItem.Name)
+                            table.insert(skinsList, {
+                                Name = skinItem.Name,
+                                Rarity = rName,
+                                Folder = skinItem
+                            })
+                        end
+
+                        local category = "Rifles"
+                        local lower = string.lower(wName)
+                        if string.find(lower, "knife") or string.find(lower, "karambit") or string.find(lower, "bayonet") or string.find(lower, "daggers") or string.find(lower, "kukri") or string.find(lower, "butterfly") then
+                            category = "Knives"
+                        elseif string.find(lower, "glock") or string.find(lower, "usp") or string.find(lower, "deagle") or string.find(lower, "eagle") or string.find(lower, "p250") or string.find(lower, "five") or string.find(lower, "dual") or string.find(lower, "cz") or string.find(lower, "revolver") or string.find(lower, "tec") or string.find(lower, "pistol") then
+                            category = "Pistols"
+                        elseif string.find(lower, "awp") or string.find(lower, "ssg") or string.find(lower, "scout") or string.find(lower, "scar") or string.find(lower, "g3sg1") then
+                            category = "Snipers"
+                        elseif string.find(lower, "mac") or string.find(lower, "mp9") or string.find(lower, "mp7") or string.find(lower, "mp5") or string.find(lower, "ump") or string.find(lower, "p90") or string.find(lower, "bizon") then
+                            category = "SMGs"
+                        elseif string.find(lower, "nova") or string.find(lower, "xm1014") or string.find(lower, "mag-7") or string.find(lower, "sawed") or string.find(lower, "negev") or string.find(lower, "m249") then
+                            category = "Heavy"
+                        elseif string.find(lower, "glove") then
+                            category = "Gloves"
+                        end
+
+                        table.insert(discovered, {
+                            Name = wName,
+                            Category = category,
+                            Skins = skinsList,
+                            CurrentSkin = SkinChanger.EquippedSkins[wName] or "Default",
+                            GetModel = function()
+                                if CustomGetWeaponModel then
+                                    local m = CustomGetWeaponModel(wName)
+                                    if m then return m end
+                                end
+                                if weaponsFolder and weaponsFolder:FindFirstChild(wName) then
+                                    local w = weaponsFolder[wName]
+                                    return w:FindFirstChild("Camera") or w:FindFirstChild("World") or w
+                                end
+                                return nil
+                            end
+                        })
+                    end
+                end
+
+                table.sort(discovered, function(a, b) return a.Name < b.Name end)
+                return discovered
+            end
+
+            if Info.Weapons and #Info.Weapons > 0 then
+                SkinChanger.Weapons = Info.Weapons
+            else
+                SkinChanger.Weapons = FetchGameWeapons()
+            end
+
+            local Root = New("Frame", {
+                Name = "SkinChangerRoot",
+                BackgroundTransparency = 1,
+                Position = UDim2.fromScale(0, 0),
+                Size = UDim2.fromScale(1, 1),
+                Parent = TabContainer,
+            })
+
+            local WeaponsView = New("Frame", {
+                Name = "WeaponsView",
+                BackgroundTransparency = 1,
+                Position = UDim2.fromScale(0, 0),
+                Size = UDim2.fromScale(1, 1),
+                Visible = true,
+                Parent = Root,
+            })
+
+            local SkinSelectionView = New("Frame", {
+                Name = "SkinSelectionView",
+                BackgroundTransparency = 1,
+                Position = UDim2.fromScale(0, 0),
+                Size = UDim2.fromScale(1, 1),
+                Visible = false,
+                Parent = Root,
+            })
+
+            local TopBar = New("Frame", {
+                BackgroundTransparency = 1,
+                Position = UDim2.fromOffset(0, 0),
+                Size = UDim2.new(1, 0, 0, 32),
+                Parent = WeaponsView,
+            })
+
+            local SearchBoxHolder = New("Frame", {
+                BackgroundColor3 = "MainColor",
+                BorderSizePixel = 0,
+                Position = UDim2.fromOffset(0, 0),
+                Size = UDim2.new(0.38, -4, 1, 0),
+                Parent = TopBar,
+            })
+            New("UICorner", { CornerRadius = UDim.new(0, 4), Parent = SearchBoxHolder })
+            Library:AddOutline(SearchBoxHolder)
+
+            local SearchBox = New("TextBox", {
+                BackgroundTransparency = 1,
+                Position = UDim2.fromOffset(8, 0),
+                Size = UDim2.new(1, -16, 1, 0),
+                PlaceholderText = "Search weapon...",
+                Text = "",
+                TextColor3 = "FontColor",
+                PlaceholderColor3 = "SubTextColor",
+                TextSize = 13,
+                Font = Library.Scheme.Font,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                ClearTextOnFocus = false,
+                Parent = SearchBoxHolder,
+            })
+
+            local CategoryScroll = New("ScrollingFrame", {
+                BackgroundTransparency = 1,
+                BorderSizePixel = 0,
+                Position = UDim2.new(0.38, 4, 0, 0),
+                Size = UDim2.new(0.62, -4, 1, 0),
+                CanvasSize = UDim2.fromScale(0, 0),
+                AutomaticCanvasSize = Enum.AutomaticSize.X,
+                ScrollBarThickness = 0,
+                ScrollingDirection = Enum.ScrollingDirection.X,
+                Parent = TopBar,
+            })
+            New("UIListLayout", {
+                FillDirection = Enum.FillDirection.Horizontal,
+                Padding = UDim.new(0, 4),
+                SortOrder = Enum.SortOrder.LayoutOrder,
+                Parent = CategoryScroll,
+            })
+
+            local WeaponsScroll = New("ScrollingFrame", {
+                BackgroundTransparency = 1,
+                BorderSizePixel = 0,
+                Position = UDim2.new(0, 0, 0, 38),
+                Size = UDim2.new(1, 0, 1, -38),
+                CanvasSize = UDim2.fromScale(0, 0),
+                AutomaticCanvasSize = Enum.AutomaticSize.Y,
+                ScrollBarThickness = 3,
+                ScrollBarImageColor3 = "OutlineColor",
+                Parent = WeaponsView,
+            })
+            New("UIPadding", {
+                PaddingTop = UDim.new(0, 2),
+                PaddingBottom = UDim.new(0, 6),
+                PaddingLeft = UDim.new(0, 2),
+                PaddingRight = UDim.new(0, 6),
+                Parent = WeaponsScroll,
+            })
+
+            New("UIGridLayout", {
+                CellSize = UDim2.new(0.315, 0, 0, 142),
+                CellPadding = UDim2.new(0.02, 0, 0, 8),
+                SortOrder = Enum.SortOrder.LayoutOrder,
+                Parent = WeaponsScroll,
+            })
+
+            local function FilterCards()
+                local query = string.lower(SearchBox.Text or "")
+                local cat = SkinChanger.ActiveCategory
+
+                for wName, cardInfo in pairs(SkinChanger.Cards) do
+                    local wData = cardInfo.Data
+                    local matchQuery = (query == "" or string.find(string.lower(wName), query, 1, true))
+                    local matchCat = (cat == "All" or wData.Category == cat)
+                    cardInfo.Card.Visible = matchQuery and matchCat
+                end
+            end
+
+            SearchBox:GetPropertyChangedSignal("Text"):Connect(FilterCards)
+
+            local CategoriesList = { "All", "Rifles", "Pistols", "SMGs", "Snipers", "Heavy", "Knives", "Gloves" }
+            local CatButtons = {}
+
+            for idx, catName in ipairs(CategoriesList) do
+                local CatBtn = New("TextButton", {
+                    Name = "CatBtn_" .. catName,
+                    AutoButtonColor = false,
+                    BackgroundColor3 = "MainColor",
+                    BorderSizePixel = 0,
+                    Size = UDim2.new(0, 56, 1, 0),
+                    Text = catName,
+                    TextColor3 = (catName == SkinChanger.ActiveCategory and "AccentColor" or "FontColor"),
+                    TextSize = 12,
+                    Font = Library.Scheme.Font,
+                    LayoutOrder = idx,
+                    Parent = CategoryScroll,
+                })
+                New("UICorner", { CornerRadius = UDim.new(0, 4), Parent = CatBtn })
+                local CatOutline = Library:AddOutline(CatBtn)
+                CatButtons[catName] = { Btn = CatBtn, Outline = CatOutline }
+
+                CatBtn.MouseButton1Click:Connect(function()
+                    SkinChanger.ActiveCategory = catName
+                    for c, item in pairs(CatButtons) do
+                        if c == catName then
+                            item.Btn.TextColor3 = Library.Scheme.AccentColor
+                            item.Outline.Color = Library.Scheme.AccentColor
+                        else
+                            item.Btn.TextColor3 = Library.Scheme.FontColor
+                            item.Outline.Color = Library.Scheme.OutlineColor
+                        end
+                    end
+                    FilterCards()
+                end)
+            end
+
+            local function CreateCard(wData, idx)
+                local Card = New("TextButton", {
+                    Name = "Card_" .. wData.Name,
+                    AutoButtonColor = false,
+                    Text = "",
+                    BackgroundColor3 = "MainColor",
+                    BorderSizePixel = 0,
+                    LayoutOrder = idx,
+                    Parent = WeaponsScroll,
+                })
+                New("UICorner", { CornerRadius = UDim.new(0, 6), Parent = Card })
+                local CardOutline = Library:AddOutline(Card)
+
+                local VP = New("ViewportFrame", {
+                    BackgroundTransparency = 1,
+                    Position = UDim2.fromOffset(6, 6),
+                    Size = UDim2.new(1, -12, 0, 86),
+                    Parent = Card,
+                })
+
+                local model = wData.GetModel and wData.GetModel()
+                if model then
+                    SetupViewport(VP, model, false)
+                else
+                    New("TextLabel", {
+                        BackgroundTransparency = 1,
+                        Size = UDim2.fromScale(1, 1),
+                        Text = "3D",
+                        TextColor3 = "SubTextColor",
+                        TextSize = 20,
+                        Font = Library.Scheme.Font,
+                        Parent = VP,
+                    })
+                end
+
+                New("TextLabel", {
+                    BackgroundTransparency = 1,
+                    Position = UDim2.fromOffset(8, 96),
+                    Size = UDim2.new(1, -16, 0, 18),
+                    Text = wData.Name,
+                    TextColor3 = "FontColor",
+                    TextSize = 13,
+                    Font = Library.Scheme.Font,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextTruncate = Enum.TextTruncate.AtEnd,
+                    Parent = Card,
+                })
+
+                local currentSkin = SkinChanger.EquippedSkins[wData.Name] or wData.CurrentSkin or "Default"
+                local SkinBadge = New("TextLabel", {
+                    BackgroundTransparency = 1,
+                    Position = UDim2.fromOffset(8, 116),
+                    Size = UDim2.new(1, -16, 0, 16),
+                    Text = currentSkin,
+                    TextColor3 = (currentSkin == "Default" and "SubTextColor" or "AccentColor"),
+                    TextSize = 11,
+                    Font = Library.Scheme.Font,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    TextTruncate = Enum.TextTruncate.AtEnd,
+                    Parent = Card,
+                })
+
+                Card.MouseEnter:Connect(function()
+                    CardOutline.Color = Library.Scheme.AccentColor
+                end)
+                Card.MouseLeave:Connect(function()
+                    CardOutline.Color = Library.Scheme.OutlineColor
+                end)
+
+                Card.MouseButton1Click:Connect(function()
+                    SkinChanger:OpenWeapon(wData.Name)
+                end)
+
+                SkinChanger.Cards[wData.Name] = {
+                    Card = Card,
+                    SkinBadge = SkinBadge,
+                    Data = wData,
+                    VP = VP,
+                }
+            end
+
+            for idx, wData in ipairs(SkinChanger.Weapons) do
+                CreateCard(wData, idx)
+            end
+
+            -- Top Navigation Bar in SkinSelectionView
+            local SubTopBar = New("Frame", {
+                BackgroundTransparency = 1,
+                Position = UDim2.fromOffset(0, 0),
+                Size = UDim2.new(1, 0, 0, 32),
+                Parent = SkinSelectionView,
+            })
+
+            local BackButton = New("TextButton", {
+                Name = "BackButton",
+                AutoButtonColor = false,
+                BackgroundColor3 = "MainColor",
+                BorderSizePixel = 0,
+                Position = UDim2.fromOffset(0, 0),
+                Size = UDim2.new(0, 88, 1, 0),
+                Text = "<- Back",
+                TextColor3 = "FontColor",
+                TextSize = 13,
+                Font = Library.Scheme.Font,
+                Parent = SubTopBar,
+            })
+            New("UICorner", { CornerRadius = UDim.new(0, 4), Parent = BackButton })
+            local BackOutline = Library:AddOutline(BackButton)
+
+            BackButton.MouseEnter:Connect(function()
+                BackOutline.Color = Library.Scheme.AccentColor
+            end)
+            BackButton.MouseLeave:Connect(function()
+                BackOutline.Color = Library.Scheme.OutlineColor
+            end)
+            BackButton.MouseButton1Click:Connect(function()
+                SkinChanger:Back()
+            end)
+
+            local HeaderTitle = New("TextLabel", {
+                BackgroundTransparency = 1,
+                Position = UDim2.fromOffset(98, 0),
+                Size = UDim2.new(1, -98, 1, 0),
+                Text = "Weapon Skins",
+                TextColor3 = "FontColor",
+                TextSize = 14,
+                Font = Library.Scheme.Font,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                Parent = SubTopBar,
+            })
+
+            local ContentFrame = New("Frame", {
+                BackgroundTransparency = 1,
+                Position = UDim2.fromOffset(0, 38),
+                Size = UDim2.new(1, 0, 1, -38),
+                Parent = SkinSelectionView,
+            })
+
+            local ShowcasePanel = New("Frame", {
+                BackgroundColor3 = "MainColor",
+                BorderSizePixel = 0,
+                Position = UDim2.fromOffset(0, 0),
+                Size = UDim2.new(0.44, -4, 1, 0),
+                Parent = ContentFrame,
+            })
+            New("UICorner", { CornerRadius = UDim.new(0, 6), Parent = ShowcasePanel })
+            Library:AddOutline(ShowcasePanel)
+
+            local ShowcaseVP = New("ViewportFrame", {
+                BackgroundTransparency = 1,
+                Position = UDim2.fromOffset(8, 8),
+                Size = UDim2.new(1, -16, 0.60, 0),
+                Parent = ShowcasePanel,
+            })
+
+            local ShowcaseSkinLabel = New("TextLabel", {
+                BackgroundTransparency = 1,
+                Position = UDim2.new(0, 8, 0.62, 0),
+                Size = UDim2.new(1, -16, 0, 20),
+                Text = "Skin Name",
+                TextColor3 = "FontColor",
+                TextSize = 15,
+                Font = Library.Scheme.Font,
+                TextXAlignment = Enum.TextXAlignment.Center,
+                TextTruncate = Enum.TextTruncate.AtEnd,
+                Parent = ShowcasePanel,
+            })
+
+            local ShowcaseRarityBadge = New("TextLabel", {
+                BackgroundColor3 = "BackgroundColor",
+                BorderSizePixel = 0,
+                Position = UDim2.new(0.2, 0, 0.71, 0),
+                Size = UDim2.new(0.6, 0, 0, 18),
+                Text = "Covert",
+                TextColor3 = RarityColors.Covert,
+                TextSize = 11,
+                Font = Library.Scheme.Font,
+                Parent = ShowcasePanel,
+            })
+            New("UICorner", { CornerRadius = UDim.new(0, 3), Parent = ShowcaseRarityBadge })
+
+            local EquipButton = New("TextButton", {
+                AutoButtonColor = false,
+                BackgroundColor3 = "AccentColor",
+                BorderSizePixel = 0,
+                Position = UDim2.new(0, 10, 0.82, 0),
+                Size = UDim2.new(1, -20, 0, 28),
+                Text = "Equip Skin",
+                TextColor3 = Color3.fromRGB(255, 255, 255),
+                TextSize = 13,
+                Font = Library.Scheme.Font,
+                Parent = ShowcasePanel,
+            })
+            New("UICorner", { CornerRadius = UDim.new(0, 4), Parent = EquipButton })
+
+            local SkinsPanel = New("Frame", {
+                BackgroundColor3 = "MainColor",
+                BorderSizePixel = 0,
+                Position = UDim2.new(0.44, 4, 0, 0),
+                Size = UDim2.new(0.56, -4, 1, 0),
+                Parent = ContentFrame,
+            })
+            New("UICorner", { CornerRadius = UDim.new(0, 6), Parent = SkinsPanel })
+            Library:AddOutline(SkinsPanel)
+
+            local SkinSearchHolder = New("Frame", {
+                BackgroundColor3 = "BackgroundColor",
+                BorderSizePixel = 0,
+                Position = UDim2.fromOffset(8, 8),
+                Size = UDim2.new(1, -16, 0, 26),
+                Parent = SkinsPanel,
+            })
+            New("UICorner", { CornerRadius = UDim.new(0, 4), Parent = SkinSearchHolder })
+            Library:AddOutline(SkinSearchHolder)
+
+            local SkinSearchBox = New("TextBox", {
+                BackgroundTransparency = 1,
+                Position = UDim2.fromOffset(8, 0),
+                Size = UDim2.new(1, -16, 1, 0),
+                PlaceholderText = "Search skin...",
+                Text = "",
+                TextColor3 = "FontColor",
+                PlaceholderColor3 = "SubTextColor",
+                TextSize = 12,
+                Font = Library.Scheme.Font,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                ClearTextOnFocus = false,
+                Parent = SkinSearchHolder,
+            })
+
+            local SkinsScroll = New("ScrollingFrame", {
+                BackgroundTransparency = 1,
+                BorderSizePixel = 0,
+                Position = UDim2.fromOffset(8, 40),
+                Size = UDim2.new(1, -16, 1, -48),
+                CanvasSize = UDim2.fromScale(0, 0),
+                AutomaticCanvasSize = Enum.AutomaticSize.Y,
+                ScrollBarThickness = 3,
+                ScrollBarImageColor3 = "OutlineColor",
+                Parent = SkinsPanel,
+            })
+            New("UIListLayout", {
+                Padding = UDim.new(0, 4),
+                SortOrder = Enum.SortOrder.LayoutOrder,
+                Parent = SkinsScroll,
+            })
+
+            function SkinChanger:Back()
+                if SkinChanger.RotateConnection then
+                    SkinChanger.RotateConnection:Disconnect()
+                    SkinChanger.RotateConnection = nil
+                end
+                ShowcaseVP:ClearAllChildren()
+                SkinSelectionView.Visible = false
+                WeaponsView.Visible = true
+            end
+
+            function SkinChanger:UpdateShowcase(wData, skinName)
+                SkinChanger.SelectedSkin = skinName
+                ShowcaseSkinLabel.Text = skinName
+                local rName, rColor = DetermineRarity(skinName)
+                ShowcaseRarityBadge.Text = rName
+                ShowcaseRarityBadge.TextColor3 = rColor
+
+                local isEquipped = (SkinChanger.EquippedSkins[wData.Name] or "Default") == skinName
+                if isEquipped then
+                    EquipButton.Text = "Equipped"
+                    EquipButton.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
+                else
+                    EquipButton.Text = "Equip Skin"
+                    EquipButton.BackgroundColor3 = Library.Scheme.AccentColor
+                end
+
+                if SkinChanger.RotateConnection then
+                    SkinChanger.RotateConnection:Disconnect()
+                    SkinChanger.RotateConnection = nil
+                end
+
+                local baseModel = wData.GetModel and wData.GetModel()
+                if baseModel then
+                    local conn, targetModel = SetupViewport(ShowcaseVP, baseModel, true)
+                    SkinChanger.RotateConnection = conn
+
+                    if skinName ~= "Default" and targetModel then
+                        local skinFolder = nil
+                        if wData.Skins then
+                            for _, s in ipairs(wData.Skins) do
+                                if s.Name == skinName then
+                                    skinFolder = s.Folder
+                                    break
+                                end
+                            end
+                        end
+                        if skinFolder then
+                            ApplySkinTextures(targetModel, skinFolder)
+                        end
+                    end
+                end
+            end
+
+            function SkinChanger:EquipSkin(weaponName, skinName)
+                SkinChanger.EquippedSkins[weaponName] = skinName
+
+                local cardInfo = SkinChanger.Cards[weaponName]
+                if cardInfo and cardInfo.SkinBadge then
+                    cardInfo.SkinBadge.Text = skinName
+                    cardInfo.SkinBadge.TextColor3 = (skinName == "Default" and Library.Scheme.SubTextColor or Library.Scheme.AccentColor)
+                end
+
+                if SkinChanger.ActiveWeapon and SkinChanger.ActiveWeapon.Name == weaponName then
+                    HeaderTitle.Text = string.format("%s Skins  [ %s ]", weaponName, skinName)
+                    EquipButton.Text = "Equipped"
+                    EquipButton.BackgroundColor3 = Color3.fromRGB(46, 204, 113)
+                end
+
+                if SkinChanger.ActiveWeapon then
+                    SkinChanger:RefreshSkinListStatus()
+                end
+
+                local wData = SkinChanger.ActiveWeapon
+                local skinData = nil
+                if wData and wData.Skins then
+                    for _, s in ipairs(wData.Skins) do
+                        if s.Name == skinName then
+                            skinData = s
+                            break
+                        end
+                    end
+                end
+
+                pcall(function()
+                    OnSkinSelected(weaponName, skinName, skinData and skinData.Folder, wData)
+                end)
+            end
+
+            EquipButton.MouseButton1Click:Connect(function()
+                if SkinChanger.ActiveWeapon and SkinChanger.SelectedSkin then
+                    SkinChanger:EquipSkin(SkinChanger.ActiveWeapon.Name, SkinChanger.SelectedSkin)
+                end
+            end)
+
+            function SkinChanger:RefreshSkinListStatus()
+                local wName = SkinChanger.ActiveWeapon and SkinChanger.ActiveWeapon.Name
+                local currentEq = wName and (SkinChanger.EquippedSkins[wName] or "Default")
+
+                for _, item in ipairs(SkinsScroll:GetChildren()) do
+                    if item:IsA("TextButton") then
+                        local sName = string.gsub(item.Name, "^SkinItem_", "")
+                        local statusLbl = item:FindFirstChild("StatusLabel")
+                        if statusLbl then
+                            local isEq = (sName == currentEq)
+                            statusLbl.Text = isEq and "[Equipped]" or "Select"
+                            statusLbl.TextColor3 = isEq and Color3.fromRGB(46, 204, 113) or Library.Scheme.SubTextColor
+                        end
+                    end
+                end
+            end
+
+            function SkinChanger:PopulateSkins(wData)
+                SkinsScroll:ClearAllChildren()
+                New("UIListLayout", {
+                    Padding = UDim.new(0, 4),
+                    SortOrder = Enum.SortOrder.LayoutOrder,
+                    Parent = SkinsScroll,
+                })
+
+                local query = string.lower(SkinSearchBox.Text or "")
+
+                for idx, s in ipairs(wData.Skins or {}) do
+                    if query == "" or string.find(string.lower(s.Name), query, 1, true) then
+                        local rName, rColor = DetermineRarity(s.Name)
+                        local isEq = (SkinChanger.EquippedSkins[wData.Name] or "Default") == s.Name
+
+                        local Item = New("TextButton", {
+                            Name = "SkinItem_" .. s.Name,
+                            AutoButtonColor = false,
+                            BackgroundColor3 = "BackgroundColor",
+                            BorderSizePixel = 0,
+                            Size = UDim2.new(1, 0, 0, 36),
+                            Text = "",
+                            LayoutOrder = idx,
+                            Parent = SkinsScroll,
+                        })
+                        New("UICorner", { CornerRadius = UDim.new(0, 4), Parent = Item })
+                        local ItemStroke = Library:AddOutline(Item)
+
+                        local Strip = New("Frame", {
+                            BackgroundColor3 = rColor,
+                            BorderSizePixel = 0,
+                            Position = UDim2.fromOffset(0, 0),
+                            Size = UDim2.new(0, 4, 1, 0),
+                            Parent = Item,
+                        })
+                        New("UICorner", { CornerRadius = UDim.new(0, 2), Parent = Strip })
+
+                        New("TextLabel", {
+                            BackgroundTransparency = 1,
+                            Position = UDim2.fromOffset(12, 0),
+                            Size = UDim2.new(0.65, -12, 1, 0),
+                            Text = s.Name,
+                            TextColor3 = "FontColor",
+                            TextSize = 13,
+                            Font = Library.Scheme.Font,
+                            TextXAlignment = Enum.TextXAlignment.Left,
+                            TextTruncate = Enum.TextTruncate.AtEnd,
+                            Parent = Item,
+                        })
+
+                        New("TextLabel", {
+                            Name = "StatusLabel",
+                            BackgroundTransparency = 1,
+                            Position = UDim2.new(0.65, 0, 0, 0),
+                            Size = UDim2.new(0.35, -8, 1, 0),
+                            Text = isEq and "[Equipped]" or "Select",
+                            TextColor3 = isEq and Color3.fromRGB(46, 204, 113) or "SubTextColor",
+                            TextSize = 12,
+                            Font = Library.Scheme.Font,
+                            TextXAlignment = Enum.TextXAlignment.Right,
+                            Parent = Item,
+                        })
+
+                        Item.MouseEnter:Connect(function()
+                            ItemStroke.Color = rColor
+                        end)
+                        Item.MouseLeave:Connect(function()
+                            ItemStroke.Color = Library.Scheme.OutlineColor
+                        end)
+
+                        Item.MouseButton1Click:Connect(function()
+                            SkinChanger:UpdateShowcase(wData, s.Name)
+                            SkinChanger:EquipSkin(wData.Name, s.Name)
+                        end)
+                    end
+                end
+            end
+
+            SkinSearchBox:GetPropertyChangedSignal("Text"):Connect(function()
+                if SkinChanger.ActiveWeapon then
+                    SkinChanger:PopulateSkins(SkinChanger.ActiveWeapon)
+                end
+            end)
+
+            function SkinChanger:OpenWeapon(wName)
+                local wData = nil
+                for _, w in ipairs(SkinChanger.Weapons) do
+                    if w.Name == wName then
+                        wData = w
+                        break
+                    end
+                end
+                if not wData then return end
+
+                SkinChanger.ActiveWeapon = wData
+                local currentSkin = SkinChanger.EquippedSkins[wName] or wData.CurrentSkin or "Default"
+                SkinChanger.SelectedSkin = currentSkin
+
+                WeaponsView.Visible = false
+                SkinSelectionView.Visible = true
+
+                HeaderTitle.Text = string.format("%s Skins  [ %s ]", wName, currentSkin)
+
+                SkinChanger:PopulateSkins(wData)
+                SkinChanger:UpdateShowcase(wData, currentSkin)
+            end
+
+            function SkinChanger:SetWeapons(newList)
+                SkinChanger.Weapons = newList or {}
+                WeaponsScroll:ClearAllChildren()
+                SkinChanger.Cards = {}
+
+                New("UIPadding", {
+                    PaddingTop = UDim.new(0, 2),
+                    PaddingBottom = UDim.new(0, 6),
+                    PaddingLeft = UDim.new(0, 2),
+                    PaddingRight = UDim.new(0, 6),
+                    Parent = WeaponsScroll,
+                })
+                New("UIGridLayout", {
+                    CellSize = UDim2.new(0.315, 0, 0, 142),
+                    CellPadding = UDim2.new(0.02, 0, 0, 8),
+                    SortOrder = Enum.SortOrder.LayoutOrder,
+                    Parent = WeaponsScroll,
+                })
+
+                for idx, wData in ipairs(SkinChanger.Weapons) do
+                    CreateCard(wData, idx)
+                end
+                FilterCards()
+            end
+
+            function SkinChanger:Destroy()
+                if SkinChanger.RotateConnection then
+                    SkinChanger.RotateConnection:Disconnect()
+                    SkinChanger.RotateConnection = nil
+                end
+                Root:Destroy()
+                TabLeft.Visible = true
+                TabRight.Visible = true
+                SkinChanger.Destroyed = true
+            end
+
+            return SkinChanger
+        end
+
+
         function Tab:Hover(Hovering)
             if Library.ActiveTab == Tab then
                 return

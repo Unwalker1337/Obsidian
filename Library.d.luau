@@ -836,6 +836,17 @@ export type Tab = {
         Collapsed: boolean?,
         DisableCollapsing: boolean?
     ) -> Groupbox,
+    AddSkinChanger: (
+        self: Tab,
+        Info: {
+            Weapons: { any }?,
+            EquippedSkins: { [string]: string }?,
+            GetWeaponModel: ((weaponName: string) -> Instance?)?,
+            GetSkinModel: ((weaponName: string, skinName: string) -> Instance?)?,
+            ApplySkin: ((model: Instance, skinSource: Instance) -> ())?,
+            OnSkinSelected: ((weaponName: string, skinName: string, skinFolder: Instance?, weaponData: any) -> ())?,
+        }?
+    ) -> any,
     AddTabbox: (self: Tab, Info: { Side: number | string, Name: string?, PopOut: boolean?, MaxPopOutHeight: number?, PopOutWidth: number? }) -> Tabbox,
     AddLeftTabbox: (self: Tab, Name: string?) -> Tabbox,
     AddRightTabbox: (self: Tab, Name: string?) -> Tabbox,
