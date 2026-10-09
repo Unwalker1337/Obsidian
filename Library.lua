@@ -15836,7 +15836,13 @@ function Library:CreateWindow(WindowInfo)
                 end
             end
 
-            task.delay(FadeTime, function()
+            -- On close the frame's background fade is deliberately delayed by half the
+            -- fade time, so the frame has to stay visible until that second half has
+            -- finished too. Hiding it at FadeTime cut the fade off halfway through and
+            -- the window popped out instead of fading.
+            local HideAfter = Library.Toggled and FadeTime or (FadeTime * 1.5)
+
+            task.delay(HideAfter, function()
                 MainFrame.Visible = Library.Toggled
                 Fading = false
             end)
