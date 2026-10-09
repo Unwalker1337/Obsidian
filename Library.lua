@@ -232,7 +232,7 @@ local Library = {
 
     Animations = {
         ToggleWindow = false,
-        TabSwitch = false,
+        TabSwitch = true,
         Groupbox = false,
         Dropdown = false,
         KeyPicker = false
@@ -425,14 +425,14 @@ local Templates = {
         --// Animations \\--
         Animations = {
             ToggleWindow = false,
-            TabSwitch = false,
+            TabSwitch = true,
             Groupbox = false,
             Dropdown = false,
             KeyPicker = false,
         },
 
         TabTransitionTime = 0.22,
-        TabSwipeOffset = 26,
+        TabSwipeOffset = 14,
         TabSwipeFrom = "bottom",
         TabButtonsStyle = {
             Gap = 0,
@@ -1463,7 +1463,9 @@ function Library:UpdateColorsUsingRegistry()
             local SchemeValue = GetSchemeValue(Index)
 
             if SchemeValue or typeof(Index) == "function" then
-                Instance[Property] = SchemeValue or Index()
+                pcall(function()
+                    Instance[Property] = SchemeValue or Index()
+                end)
             end
         end
     end
@@ -1619,7 +1621,15 @@ local function FillInstance(Table: { [string]: any }, Instance: GuiObject)
             end
         end
 
-        Instance[key] = value
+        if key == "Font" then
+            pcall(function()
+                Instance.FontFace = Font.fromEnum(value)
+            end)
+        else
+            pcall(function()
+                Instance[key] = value
+            end)
+        end
     end
 
     if GetTableSize(ThemeProperties) > 0 then
@@ -2607,8 +2617,8 @@ function Library:PlayTabAnimation(Tab, Showing: boolean, OnComplete: (() -> ())?
     end
 
     if Showing then
-        local TweenInfo = Library.TabTransitionInfo or TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-        local Offset = Library.TabSwipeOffset or 26
+        local TweenInfo = Library.TabTransitionInfo or TweenInfo.new(0.22, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out)
+        local Offset = Library.TabSwipeOffset or 14
         local SwipeFrom = string.lower(Library.TabSwipeFrom or "bottom")
         local StartPosition
         local StartingPositions = {
@@ -2618,11 +2628,11 @@ function Library:PlayTabAnimation(Tab, Showing: boolean, OnComplete: (() -> ())?
             Bottom = UDim2.fromOffset(0, Offset),
         }
 
-        if SwipeFrom == "auto" and Library.PreviousTab then
+        if SwipeFrom == "auto" and Library.PreviousTab and Library.PreviousTab.Button then
             local CurrentOrder = Tab.Button.LayoutOrder
             local PreviousOrder = Library.PreviousTab.Button.LayoutOrder
-            if CurrentOrder and PreviousOrder then -- this may be unnecessary but oh well
-                StartPosition = CurrentOrder > PreviousOrder and StartingPositions.Top or StartingPositions.Bottom -- bigger order means its under the current button
+            if CurrentOrder and PreviousOrder then
+                StartPosition = CurrentOrder > PreviousOrder and StartingPositions.Right or StartingPositions.Left
             else
                 StartPosition = StartingPositions.Bottom
             end
@@ -11030,14 +11040,27 @@ function Library:CreateWindow(WindowInfo)
     Library.ToggleKeybind = WindowInfo.ToggleKeybind
     Library.GlobalSearch = WindowInfo.GlobalSearch
 
+    if typeof(WindowInfo.Animations) == "table" then
+        if WindowInfo.Animations.TabSwitch == nil then
+            WindowInfo.Animations.TabSwitch = true
+        end
+    else
+        WindowInfo.Animations = {
+            TabSwitch = true,
+            ToggleWindow = false,
+            Groupbox = false,
+            Dropdown = false,
+            KeyPicker = false,
+        }
+    end
     Library.Animations = WindowInfo.Animations
     Library.TabTransitionInfo = TweenInfo.new(
         math.max(0, WindowInfo.TabTransitionTime or 0.22),
-        Enum.EasingStyle.Quad,
+        Enum.EasingStyle.Cubic,
         Enum.EasingDirection.Out
     )
-    Library.TabSwipeOffset = math.max(1, WindowInfo.TabSwipeOffset or 26)
-    Library.TabSwipeFrom = WindowInfo.TabSwipeFrom or "right"
+    Library.TabSwipeOffset = math.max(1, WindowInfo.TabSwipeOffset or 14)
+    Library.TabSwipeFrom = WindowInfo.TabSwipeFrom or "bottom"
 
     local IsDefaultSearchbarSize = WindowInfo.SearchbarSize == UDim2.fromScale(1, 1)
     local MainFrame
@@ -11437,7 +11460,7 @@ function Library:CreateWindow(WindowInfo)
             Text = WindowInfo.Title,
             TextColor3 = "FontColor",
             TextSize = 15,
-            Font = Enum.Font.GothamBold,
+            FontFace = Font.fromEnum(Enum.Font.GothamBold),
             TextXAlignment = Enum.TextXAlignment.Left,
             TextYAlignment = Enum.TextYAlignment.Center,
             LayoutOrder = 1,
@@ -11508,7 +11531,6 @@ function Library:CreateWindow(WindowInfo)
             TextColor3 = "FontColor",
             TextTransparency = 0.25,
             TextSize = 12,
-            Font = Enum.Font.GothamMedium,
             Parent = ConfigPillHolder,
         })
         local ConfigChevron = New("ImageLabel", {
@@ -12039,7 +12061,6 @@ function Library:CreateWindow(WindowInfo)
                 Size = UDim2.new(0, 0, 1, 0),
                 Text = string.lower(Name),
                 TextColor3 = Color3.fromRGB(120, 120, 130),
-                Font = Enum.Font.GothamMedium,
                 TextSize = 13,
                 TextXAlignment = Enum.TextXAlignment.Center,
                 TextYAlignment = Enum.TextYAlignment.Center,
@@ -13590,7 +13611,6 @@ function Library:CreateWindow(WindowInfo)
                         Size = UDim2.new(1, 0, 0, 24),
                         Text = string.lower(it),
                         TextColor3 = isSel and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(170, 170, 180),
-                        Font = Enum.Font.GothamMedium,
                         TextSize = 12,
                         TextXAlignment = Enum.TextXAlignment.Left,
                         ZIndex = 26,
@@ -13651,7 +13671,6 @@ function Library:CreateWindow(WindowInfo)
                 Size = UDim2.new(1, 0, 0, 18),
                 Text = "knives",
                 TextColor3 = Color3.fromRGB(120, 120, 130),
-                Font = Enum.Font.GothamMedium,
                 TextSize = 12,
                 TextXAlignment = Enum.TextXAlignment.Left,
                 Parent = KnivesCol,
@@ -13674,7 +13693,6 @@ function Library:CreateWindow(WindowInfo)
                 Size = UDim2.new(0, 60, 0, 20),
                 Text = "model",
                 TextColor3 = Color3.fromRGB(210, 210, 218),
-                Font = Enum.Font.GothamMedium,
                 TextSize = 13,
                 TextXAlignment = Enum.TextXAlignment.Left,
                 Parent = KnivesCtrlCard,
@@ -13699,7 +13717,6 @@ function Library:CreateWindow(WindowInfo)
                 Size = UDim2.new(1, -26, 1, 0),
                 Text = string.lower(SkinChanger.ActiveKnife),
                 TextColor3 = Color3.fromRGB(230, 230, 238),
-                Font = Enum.Font.GothamMedium,
                 TextSize = 12,
                 TextXAlignment = Enum.TextXAlignment.Left,
                 TextTruncate = Enum.TextTruncate.AtEnd,
@@ -13724,7 +13741,6 @@ function Library:CreateWindow(WindowInfo)
                 Size = UDim2.new(0, 45, 0, 20),
                 Text = "wear",
                 TextColor3 = Color3.fromRGB(210, 210, 218),
-                Font = Enum.Font.GothamMedium,
                 TextSize = 13,
                 TextXAlignment = Enum.TextXAlignment.Left,
                 Parent = KnivesCtrlCard,
@@ -13738,7 +13754,6 @@ function Library:CreateWindow(WindowInfo)
                 Size = UDim2.fromOffset(36, 18),
                 Text = tostring(math.floor(SkinChanger.CurrentWear)) .. "%",
                 TextColor3 = Color3.fromRGB(220, 220, 230),
-                Font = Enum.Font.GothamMedium,
                 TextSize = 11,
                 Parent = KnivesCtrlCard,
             })
@@ -13857,7 +13872,6 @@ function Library:CreateWindow(WindowInfo)
                 Size = UDim2.new(1, 0, 0, 18),
                 Text = "gloves",
                 TextColor3 = Color3.fromRGB(120, 120, 130),
-                Font = Enum.Font.GothamMedium,
                 TextSize = 12,
                 TextXAlignment = Enum.TextXAlignment.Left,
                 Parent = GlovesCol,
@@ -13879,7 +13893,6 @@ function Library:CreateWindow(WindowInfo)
                 Size = UDim2.new(0, 60, 0, 20),
                 Text = "model",
                 TextColor3 = Color3.fromRGB(210, 210, 218),
-                Font = Enum.Font.GothamMedium,
                 TextSize = 13,
                 TextXAlignment = Enum.TextXAlignment.Left,
                 Parent = GlovesCtrlCard,
@@ -13904,7 +13917,6 @@ function Library:CreateWindow(WindowInfo)
                 Size = UDim2.new(1, -26, 1, 0),
                 Text = string.lower(SkinChanger.ActiveGlove),
                 TextColor3 = Color3.fromRGB(230, 230, 238),
-                Font = Enum.Font.GothamMedium,
                 TextSize = 12,
                 TextXAlignment = Enum.TextXAlignment.Left,
                 TextTruncate = Enum.TextTruncate.AtEnd,
@@ -14014,7 +14026,6 @@ function Library:CreateWindow(WindowInfo)
                         Size = UDim2.new(1, -8, 0.28, 0),
                         Text = string.lower(sData.Name),
                         TextColor3 = isEq and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(150, 150, 164),
-                        Font = Enum.Font.GothamMedium,
                         TextSize = 11,
                         TextXAlignment = Enum.TextXAlignment.Center,
                         TextTruncate = Enum.TextTruncate.AtEnd,
@@ -14099,7 +14110,6 @@ function Library:CreateWindow(WindowInfo)
                         Size = UDim2.new(1, -8, 0.28, 0),
                         Text = string.lower(sData.Name),
                         TextColor3 = isEq and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(150, 150, 164),
-                        Font = Enum.Font.GothamMedium,
                         TextSize = 11,
                         TextXAlignment = Enum.TextXAlignment.Center,
                         TextTruncate = Enum.TextTruncate.AtEnd,
@@ -14165,15 +14175,21 @@ function Library:CreateWindow(WindowInfo)
         end
 
 
+        local TabPillTweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
         function Tab:Hover(Hovering)
             if Library.ActiveTab == Tab then
                 return
             end
 
             local c = Hovering and Color3.fromRGB(180, 180, 190) or Color3.fromRGB(120, 120, 130)
-            TabLabel.TextColor3 = c
+            TweenService:Create(TabLabel, TabPillTweenInfo, {
+                TextColor3 = c
+            }):Play()
             if TabIcon then
-                TabIcon.ImageColor3 = c
+                TweenService:Create(TabIcon, TabPillTweenInfo, {
+                    ImageColor3 = c
+                }):Play()
             end
         end
 
@@ -14186,12 +14202,22 @@ function Library:CreateWindow(WindowInfo)
                 Library.ActiveTab:Hide()
             end
 
-            TabButton.BackgroundTransparency = 0
+            TweenService:Create(TabButton, TabPillTweenInfo, {
+                BackgroundTransparency = 0
+            }):Play()
             local tbStroke = TabButton:FindFirstChildOfClass("UIStroke")
-            if tbStroke then tbStroke.Transparency = 0 end
-            TabLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+            if tbStroke then
+                TweenService:Create(tbStroke, TabPillTweenInfo, {
+                    Transparency = 0
+                }):Play()
+            end
+            TweenService:Create(TabLabel, TabPillTweenInfo, {
+                TextColor3 = Color3.fromRGB(255, 255, 255)
+            }):Play()
             if TabIcon then
-                TabIcon.ImageColor3 = Color3.fromRGB(168, 140, 255)
+                TweenService:Create(TabIcon, TabPillTweenInfo, {
+                    ImageColor3 = Color3.fromRGB(168, 140, 255)
+                }):Play()
             end
 
             Library:PlayTabAnimation(Tab, true)
@@ -14205,12 +14231,22 @@ function Library:CreateWindow(WindowInfo)
         end
 
         function Tab:Hide()
-            TabButton.BackgroundTransparency = 1
+            TweenService:Create(TabButton, TabPillTweenInfo, {
+                BackgroundTransparency = 1
+            }):Play()
             local tbStroke = TabButton:FindFirstChildOfClass("UIStroke")
-            if tbStroke then tbStroke.Transparency = 1 end
-            TabLabel.TextColor3 = Color3.fromRGB(120, 120, 130)
+            if tbStroke then
+                TweenService:Create(tbStroke, TabPillTweenInfo, {
+                    Transparency = 1
+                }):Play()
+            end
+            TweenService:Create(TabLabel, TabPillTweenInfo, {
+                TextColor3 = Color3.fromRGB(120, 120, 130)
+            }):Play()
             if TabIcon then
-                TabIcon.ImageColor3 = Color3.fromRGB(120, 120, 130)
+                TweenService:Create(TabIcon, TabPillTweenInfo, {
+                    ImageColor3 = Color3.fromRGB(120, 120, 130)
+                }):Play()
             end
 
             Library:PlayTabAnimation(Tab, false)
@@ -14313,7 +14349,9 @@ function Library:CreateWindow(WindowInfo)
         TabButton.MouseLeave:Connect(function()
             Tab:Hover(false)
         end)
-        TabButton.MouseButton1Click:Connect(Tab.Show)
+        TabButton.MouseButton1Click:Connect(function()
+            Tab:Show()
+        end)
 
         Library.Tabs[Name] = Tab
 
@@ -14713,7 +14751,9 @@ function Library:CreateWindow(WindowInfo)
         TabButton.MouseLeave:Connect(function()
             Tab:Hover(false)
         end)
-        TabButton.MouseButton1Click:Connect(Tab.Show)
+        TabButton.MouseButton1Click:Connect(function()
+            Tab:Show()
+        end)
 
         Tab.Container = TabContainer
         setmetatable(Tab, BaseGroupbox)
