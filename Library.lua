@@ -706,6 +706,8 @@ local Sizes = {
 local SideIndex = {
     left = 1,
     right = 2,
+    middle = 3,
+    center = 3,
 }
 
 --// Scheme Functions \\--
@@ -6547,6 +6549,137 @@ do
         return self
     end
 
+    function Funcs:AddModal(Title: string, Builder: ((any) -> ())?)
+        if self.Destroyed then return self end
+        local ParentObj = self
+        local ToggleLabel = ParentObj.TextLabel or ParentObj.Holder or ParentObj.Base
+
+        local ModalBtn = New("TextButton", {
+            AutoButtonColor = false,
+            BackgroundTransparency = 1,
+            Size = UDim2.fromOffset(16, 16),
+            Text = "...",
+            TextColor3 = "FontColor",
+            TextTransparency = 0.5,
+            TextSize = 13,
+            FontFace = Font.fromEnum(Enum.Font.GothamBold),
+            LayoutOrder = -1,
+            Parent = ToggleLabel,
+        })
+
+        local ModalPopup = nil
+
+        local function CloseModal()
+            if ModalPopup then
+                pcall(function() ModalPopup:Destroy() end)
+                ModalPopup = nil
+            end
+        end
+
+        local function OpenModal()
+            CloseModal()
+            EnsureGuiCapability()
+            local MainFrame = Library.MainFrame
+            local Screen = Library.ScreenGui or (MainFrame and MainFrame:FindFirstAncestorWhichIsA("ScreenGui"))
+            local BtnPos = ModalBtn.AbsolutePosition
+            local ScreenSize = (Screen and Screen.AbsoluteSize) or Vector2.new(1920, 1080)
+            local Width = 185
+
+            local PosX = BtnPos.X + 24
+            if PosX + Width > ScreenSize.X - 10 then
+                PosX = BtnPos.X - Width - 10
+            end
+            local PosY = math.clamp(BtnPos.Y - 10, 10, ScreenSize.Y - 260)
+
+            ModalPopup = New("Frame", {
+                BackgroundColor3 = Color3.fromRGB(18, 18, 22),
+                BorderSizePixel = 0,
+                Position = UDim2.fromOffset(PosX, PosY),
+                Size = UDim2.fromOffset(Width, 0),
+                AutomaticSize = Enum.AutomaticSize.Y,
+                ZIndex = 50,
+                Parent = Screen or MainFrame,
+            })
+            New("UICorner", { CornerRadius = UDim.new(0, 8), Parent = ModalPopup })
+            New("UIStroke", { Color = Color3.fromRGB(45, 45, 55), Thickness = 1, Parent = ModalPopup })
+            New("UIPadding", {
+                PaddingTop = UDim.new(0, 10),
+                PaddingBottom = UDim.new(0, 10),
+                PaddingLeft = UDim.new(0, 10),
+                PaddingRight = UDim.new(0, 10),
+                Parent = ModalPopup,
+            })
+            New("UIListLayout", {
+                Padding = UDim.new(0, 8),
+                Parent = ModalPopup,
+            })
+
+            -- Header
+            New("TextLabel", {
+                BackgroundTransparency = 1,
+                Size = UDim2.new(1, 0, 0, 16),
+                Text = Title or (ParentObj.Text or "options"),
+                TextColor3 = Color3.fromRGB(240, 240, 245),
+                TextSize = 13,
+                FontFace = Font.fromEnum(Enum.Font.GothamBold),
+                TextXAlignment = Enum.TextXAlignment.Left,
+                ZIndex = 51,
+                Parent = ModalPopup,
+            })
+
+            local ModalItems = New("Frame", {
+                BackgroundTransparency = 1,
+                Size = UDim2.new(1, 0, 0, 0),
+                AutomaticSize = Enum.AutomaticSize.Y,
+                ZIndex = 51,
+                Parent = ModalPopup,
+            })
+            New("UIListLayout", {
+                Padding = UDim.new(0, 6),
+                Parent = ModalItems,
+            })
+
+            local ModalObj = {
+                Container = ModalItems,
+                Elements = {},
+                Type = "Groupbox",
+                Destroyed = false,
+                Resize = function() end,
+            }
+            setmetatable(ModalObj, BaseGroupbox)
+
+            if Builder then
+                pcall(Builder, ModalObj)
+            end
+        end
+
+        ModalBtn.MouseButton1Click:Connect(function()
+            if ModalPopup then CloseModal() else OpenModal() end
+        end)
+
+        UserInputService.InputBegan:Connect(function(Input)
+            if Input.UserInputType == Enum.UserInputType.MouseButton1 and ModalPopup then
+                local Pos = ModalPopup.AbsolutePosition
+                local Size = ModalPopup.AbsoluteSize
+                local Mouse = Input.Position
+                local InPopup = Mouse.X >= Pos.X and Mouse.X <= Pos.X + Size.X and Mouse.Y >= Pos.Y and Mouse.Y <= Pos.Y + Size.Y
+                local BPos = ModalBtn.AbsolutePosition
+                local BSize = ModalBtn.AbsoluteSize
+                local InBtn = Mouse.X >= BPos.X and Mouse.X <= BPos.X + BSize.X and Mouse.Y >= BPos.Y and Mouse.Y <= BPos.Y + BSize.Y
+                if not (InPopup or InBtn) then
+                    task.defer(CloseModal)
+                end
+            end
+        end)
+
+        table.insert(ParentObj.Addons or {}, {
+            Type = "Modal",
+            Holder = ModalBtn,
+        })
+
+        return self
+    end
+
     BaseAddons.__index = Funcs
     BaseAddons.__namecall = function(_, Key, ...)
         return Funcs[Key](...)
@@ -11689,7 +11822,8 @@ function Library:CreateWindow(WindowInfo)
         TitleHolder = New("Frame", {
             BackgroundTransparency = 1,
             Position = UDim2.fromOffset(14, 0),
-            Size = UDim2.new(1, -28, 1, 0),
+            Size = UDim2.new(0, 0, 1, 0),
+            AutomaticSize = Enum.AutomaticSize.X,
             Parent = TopBar,
         })
         New("UIListLayout", {
@@ -11825,6 +11959,91 @@ function Library:CreateWindow(WindowInfo)
         })
         local chevIco = Library:GetIcon("chevron-down")
         if chevIco then Library:ApplyLucideIcon(ConfigChevron, chevIco) end
+
+        -- Shitaro header global profile pill ("global v")
+        local GlobalPill = New("TextButton", {
+            AutoButtonColor = false,
+            BackgroundColor3 = function()
+                return Library:GetBetterColor(Library.Scheme.BackgroundColor, 2)
+            end,
+            Size = UDim2.new(0, 0, 0, 22),
+            AutomaticSize = Enum.AutomaticSize.X,
+            Text = "",
+            Visible = false,
+            LayoutOrder = 4,
+            Parent = TitleHolder,
+        })
+        New("UICorner", { CornerRadius = UDim.new(0, 5), Parent = GlobalPill })
+        New("UIStroke", { Color = "OutlineColor", Thickness = 1, Parent = GlobalPill })
+        local GlobalPillHolder = New("Frame", {
+            BackgroundTransparency = 1,
+            Size = UDim2.new(0, 0, 1, 0),
+            AutomaticSize = Enum.AutomaticSize.X,
+            Parent = GlobalPill,
+        })
+        New("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8), Parent = GlobalPillHolder })
+        New("UIListLayout", {
+            FillDirection = Enum.FillDirection.Horizontal,
+            VerticalAlignment = Enum.VerticalAlignment.Center,
+            Padding = UDim.new(0, 5),
+            Parent = GlobalPillHolder,
+        })
+        local GlobalPillLabel = New("TextLabel", {
+            BackgroundTransparency = 1,
+            AutomaticSize = Enum.AutomaticSize.X,
+            Size = UDim2.new(0, 0, 1, 0),
+            Text = "global",
+            TextColor3 = "FontColor",
+            TextTransparency = 0.25,
+            TextSize = 12,
+            Parent = GlobalPillHolder,
+        })
+        local GlobalChevron = New("ImageLabel", {
+            BackgroundTransparency = 1,
+            ImageColor3 = "FontColor",
+            ImageTransparency = 0.4,
+            Size = UDim2.fromOffset(11, 11),
+            Parent = GlobalPillHolder,
+        })
+        if chevIco then Library:ApplyLucideIcon(GlobalChevron, chevIco) end
+        Library.GlobalPillButton = GlobalPill
+        Library.GlobalPillLabel = GlobalPillLabel
+
+        -- Shitaro TopBar right side SubTabs Holder (players | world | local, etc.)
+        local SubTabHolder = New("Frame", {
+            AnchorPoint = Vector2.new(1, 0.5),
+            BackgroundTransparency = 1,
+            Position = UDim2.new(1, -14, 0.5, 0),
+            Size = UDim2.new(0, 0, 1, 0),
+            AutomaticSize = Enum.AutomaticSize.X,
+            ZIndex = 9,
+            Parent = TopBar,
+        })
+        New("UIListLayout", {
+            FillDirection = Enum.FillDirection.Horizontal,
+            HorizontalAlignment = Enum.HorizontalAlignment.Right,
+            VerticalAlignment = Enum.VerticalAlignment.Center,
+            Padding = UDim.new(0, 16),
+            Parent = SubTabHolder,
+        })
+        Library.SubTabHolder = SubTabHolder
+
+        -- Shitaro TopBar bottom divider line
+        local TopBarDivider = New("Frame", {
+            BackgroundColor3 = function()
+                return Library:GetBetterColor(Library.Scheme.BackgroundColor, 2)
+            end,
+            BorderSizePixel = 0,
+            Position = UDim2.new(0, 0, 1, -1),
+            Size = UDim2.new(1, 0, 0, 1),
+            ZIndex = 8,
+            Parent = TopBar,
+        })
+        Library:AddToRegistry(TopBarDivider, {
+            BackgroundColor3 = function()
+                return Library:GetBetterColor(Library.Scheme.BackgroundColor, 2)
+            end,
+        })
 
         --// Config pill dropdown ("default v") \\--
         -- The pill doubles as the config selector: clicking it opens the list of saved
@@ -12915,6 +13134,26 @@ function Library:CreateWindow(WindowInfo)
                     Parent = TabRight,
                 })
             end
+
+            -- Shitaro TabMiddle (for 3-column layouts: aim, visuals players)
+            TabMiddle = New("ScrollingFrame", {
+                AnchorPoint = Vector2.new(0, 0),
+                AutomaticCanvasSize = Enum.AutomaticSize.Y,
+                BackgroundTransparency = 1,
+                CanvasSize = UDim2.fromScale(0, 0),
+                Position = UDim2.new(0.333, 2, 0, 0),
+                ScrollBarImageTransparency = 1,
+                ScrollBarThickness = 0,
+                Size = UDim2.new(0.333, -4, 1, 0),
+                Visible = false,
+                Parent = TabContainer,
+            })
+            New("UIListLayout", { Padding = UDim.new(0, 2), Parent = TabMiddle })
+            New("UIPadding", { PaddingBottom = UDim.new(0, 2), PaddingLeft = UDim.new(0, 2), PaddingRight = UDim.new(0, 2), PaddingTop = UDim.new(0, 2), Parent = TabMiddle })
+            do
+                New("Frame", { BackgroundTransparency = 1, LayoutOrder = -1, Parent = TabMiddle })
+                New("Frame", { BackgroundTransparency = 1, LayoutOrder = 1, Parent = TabMiddle })
+            end
         end
 
         --// Tab Table \\--
@@ -12934,6 +13173,7 @@ function Library:CreateWindow(WindowInfo)
             Sides = {
                 TabLeft,
                 TabRight,
+                TabMiddle,
             },
             WarningBox = {
                 IsNormal = false,
@@ -13514,7 +13754,173 @@ function Library:CreateWindow(WindowInfo)
             return Tab:AddTabbox({ Side = 2, Name = Name })
         end
 
+        function Tab:SetColumns(Count: number)
+            Tab.ColumnCount = Count
+            if Count == 3 then
+                TabLeft.Position = UDim2.new(0, 0, 0, 0)
+                TabLeft.Size = UDim2.new(0.333, -4, 1, 0)
+                TabMiddle.Position = UDim2.new(0.333, 2, 0, 0)
+                TabMiddle.Size = UDim2.new(0.333, -4, 1, 0)
+                TabMiddle.Visible = true
+                TabRight.Position = UDim2.new(0.666, 4, 0, 0)
+                TabRight.Size = UDim2.new(0.334, -4, 1, 0)
+            else
+                TabLeft.Position = UDim2.new(0, 0, 0, 0)
+                TabLeft.Size = UDim2.new(0.5, -5, 1, 0)
+                TabRight.Position = UDim2.new(0.5, 5, 0, 0)
+                TabRight.Size = UDim2.new(0.5, -5, 1, 0)
+                TabMiddle.Visible = false
+            end
+        end
+
+        function Tab:AddMiddleGroupbox(Name, Icon)
+            Tab:SetColumns(3)
+            return Tab:AddGroupbox({ Side = 3, Name = Name, IconName = Icon })
+        end
+
+        function Tab:AddSubTab(SubTabName: string)
+            Tab.SubTabs = Tab.SubTabs or {}
+            local isFirst = (#Tab.SubTabs == 0)
+
+            local SubTabContainer = New("Frame", {
+                BackgroundTransparency = 1,
+                Position = UDim2.fromScale(0, 0),
+                Size = UDim2.fromScale(1, 1),
+                Visible = isFirst,
+                Parent = TabContainer,
+            })
+
+            local SubTabLeft = New("ScrollingFrame", {
+                AutomaticCanvasSize = Enum.AutomaticSize.Y,
+                BackgroundTransparency = 1,
+                CanvasSize = UDim2.fromScale(0, 0),
+                ScrollBarImageTransparency = 1,
+                ScrollBarThickness = 0,
+                Position = UDim2.new(0, 0, 0, 0),
+                Size = UDim2.new(0.5, -5, 1, 0),
+                Parent = SubTabContainer,
+            })
+            New("UIListLayout", { Padding = UDim.new(0, 2), Parent = SubTabLeft })
+            New("UIPadding", { PaddingBottom = UDim.new(0, 2), PaddingLeft = UDim.new(0, 2), PaddingRight = UDim.new(0, 2), PaddingTop = UDim.new(0, 2), Parent = SubTabLeft })
+
+            local SubTabMiddle = New("ScrollingFrame", {
+                AutomaticCanvasSize = Enum.AutomaticSize.Y,
+                BackgroundTransparency = 1,
+                CanvasSize = UDim2.fromScale(0, 0),
+                ScrollBarImageTransparency = 1,
+                ScrollBarThickness = 0,
+                Position = UDim2.new(0.333, 2, 0, 0),
+                Size = UDim2.new(0.333, -4, 1, 0),
+                Visible = false,
+                Parent = SubTabContainer,
+            })
+            New("UIListLayout", { Padding = UDim.new(0, 2), Parent = SubTabMiddle })
+            New("UIPadding", { PaddingBottom = UDim.new(0, 2), PaddingLeft = UDim.new(0, 2), PaddingRight = UDim.new(0, 2), PaddingTop = UDim.new(0, 2), Parent = SubTabMiddle })
+
+            local SubTabRight = New("ScrollingFrame", {
+                AnchorPoint = Vector2.new(0, 0),
+                AutomaticCanvasSize = Enum.AutomaticSize.Y,
+                BackgroundTransparency = 1,
+                CanvasSize = UDim2.fromScale(0, 0),
+                Position = UDim2.new(0.5, 5, 0, 0),
+                ScrollBarImageTransparency = 1,
+                ScrollBarThickness = 0,
+                Size = UDim2.new(0.5, -5, 1, 0),
+                Parent = SubTabContainer,
+            })
+            New("UIListLayout", { Padding = UDim.new(0, 2), Parent = SubTabRight })
+            New("UIPadding", { PaddingBottom = UDim.new(0, 2), PaddingLeft = UDim.new(0, 2), PaddingRight = UDim.new(0, 2), PaddingTop = UDim.new(0, 2), Parent = SubTabRight })
+
+            local SubButton = New("TextButton", {
+                AutoButtonColor = false,
+                BackgroundTransparency = 1,
+                AutomaticSize = Enum.AutomaticSize.X,
+                Size = UDim2.new(0, 0, 1, 0),
+                Text = string.lower(SubTabName),
+                TextColor3 = "FontColor",
+                TextSize = 13,
+                FontFace = Font.fromEnum(Enum.Font.GothamMedium),
+                TextTransparency = isFirst and 0 or 0.5,
+                Visible = false,
+                Parent = Library.SubTabHolder,
+            })
+
+            local SubTabObj = {
+                Name = SubTabName,
+                Tab = Tab,
+                Container = SubTabContainer,
+                Button = SubButton,
+                Left = SubTabLeft,
+                Middle = SubTabMiddle,
+                Right = SubTabRight,
+                Sides = { SubTabLeft, SubTabRight, SubTabMiddle },
+                ColumnCount = 2,
+            }
+
+            function SubTabObj:SetColumns(Count: number)
+                SubTabObj.ColumnCount = Count
+                if Count == 3 then
+                    SubTabLeft.Position = UDim2.new(0, 0, 0, 0)
+                    SubTabLeft.Size = UDim2.new(0.333, -4, 1, 0)
+                    SubTabMiddle.Position = UDim2.new(0.333, 2, 0, 0)
+                    SubTabMiddle.Size = UDim2.new(0.333, -4, 1, 0)
+                    SubTabMiddle.Visible = true
+                    SubTabRight.Position = UDim2.new(0.666, 4, 0, 0)
+                    SubTabRight.Size = UDim2.new(0.334, -4, 1, 0)
+                else
+                    SubTabLeft.Position = UDim2.new(0, 0, 0, 0)
+                    SubTabLeft.Size = UDim2.new(0.5, -5, 1, 0)
+                    SubTabRight.Position = UDim2.new(0.5, 5, 0, 0)
+                    SubTabRight.Size = UDim2.new(0.5, -5, 1, 0)
+                    SubTabMiddle.Visible = false
+                end
+            end
+
+            function SubTabObj:Show()
+                for _, other in Tab.SubTabs do
+                    other.Container.Visible = false
+                    other.Button.TextTransparency = 0.5
+                end
+                SubTabContainer.Visible = true
+                SubButton.TextTransparency = 0
+            end
+
+            SubButton.MouseButton1Click:Connect(function()
+                SubTabObj:Show()
+            end)
+
+            function SubTabObj:AddGroupbox(Info)
+                Info = Library:Validate(Info, Templates.Groupbox)
+                if typeof(Info.Side) == "string" then
+                    local lowerSide = string.lower(Info.Side)
+                    Info.Side = SideIndex[lowerSide] or 1
+                end
+                local ParentFrame = (Info.Side == 1 and SubTabLeft) or (Info.Side == 3 and SubTabMiddle) or SubTabRight
+                return Tab:CreateGroupboxInternal(Info, ParentFrame)
+            end
+
+            function SubTabObj:AddLeftGroupbox(Name, Icon)
+                return SubTabObj:AddGroupbox({ Side = 1, Name = Name, IconName = Icon })
+            end
+
+            function SubTabObj:AddRightGroupbox(Name, Icon)
+                return SubTabObj:AddGroupbox({ Side = 2, Name = Name, IconName = Icon })
+            end
+
+            function SubTabObj:AddMiddleGroupbox(Name, Icon)
+                SubTabObj:SetColumns(3)
+                return SubTabObj:AddGroupbox({ Side = 3, Name = Name, IconName = Icon })
+            end
+
+            table.insert(Tab.SubTabs, SubTabObj)
+            return SubTabObj
+        end
+
         function Tab:AddGroupbox(Info)
+            return Tab:CreateGroupboxInternal(Info, nil)
+        end
+
+        function Tab:CreateGroupboxInternal(Info, TargetParent)
             Info = Library:Validate(Info, Templates.Groupbox)
 
             if typeof(Info.Side) == "string" then
@@ -13530,7 +13936,7 @@ function Library:CreateWindow(WindowInfo)
                 AutomaticSize = Enum.AutomaticSize.Y,
                 BackgroundTransparency = 1,
                 Size = UDim2.fromScale(1, 0),
-                Parent = (Info.Side == 1) and TabLeft or TabRight,
+                Parent = TargetParent or ((Info.Side == 1 and TabLeft) or (Info.Side == 3 and TabMiddle) or TabRight),
             })
             local BoxHolderList = New("UIListLayout", {
                 Padding = UDim.new(0, 6),
@@ -15236,6 +15642,18 @@ function Library:CreateWindow(WindowInfo)
             Tab:RefreshSides()
 
             Library.ActiveTab = Tab
+            if Library.SubTabHolder then
+                for _, otherTab in Library.Tabs do
+                    if otherTab.SubTabs then
+                        for _, sub in otherTab.SubTabs do
+                            sub.Button.Visible = (otherTab == Tab)
+                        end
+                    end
+                end
+            end
+            if Library.GlobalPillButton then
+                Library.GlobalPillButton.Visible = (Tab.ShowGlobalPill == true)
+            end
 
             if Library.Searching then
                 Library:UpdateSearch(Library.SearchText)
